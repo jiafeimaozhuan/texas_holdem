@@ -61,3 +61,44 @@ def test_legal_action_represents_amount_bounds():
     assert action.type is ActionType.RAISE
     assert action.min_amount == 60
     assert action.max_amount == 300
+
+
+@pytest.mark.parametrize(
+    ("min_amount", "max_amount"),
+    [
+        (0.5, 100),
+        (0, 100.5),
+    ],
+)
+def test_legal_action_rejects_fractional_amount_bounds(min_amount, max_amount):
+    with pytest.raises(TypeError):
+        LegalAction(type=ActionType.RAISE, min_amount=min_amount, max_amount=max_amount)
+
+
+@pytest.mark.parametrize(
+    ("min_amount", "max_amount"),
+    [
+        (False, 100),
+        (0, True),
+    ],
+)
+def test_legal_action_rejects_bool_amount_bounds(min_amount, max_amount):
+    with pytest.raises(TypeError):
+        LegalAction(type=ActionType.RAISE, min_amount=min_amount, max_amount=max_amount)
+
+
+@pytest.mark.parametrize(
+    ("min_amount", "max_amount"),
+    [
+        (-1, 100),
+        (0, -1),
+    ],
+)
+def test_legal_action_rejects_negative_amount_bounds(min_amount, max_amount):
+    with pytest.raises(ValueError):
+        LegalAction(type=ActionType.RAISE, min_amount=min_amount, max_amount=max_amount)
+
+
+def test_legal_action_rejects_min_amount_greater_than_max_amount():
+    with pytest.raises(ValueError):
+        LegalAction(type=ActionType.RAISE, min_amount=101, max_amount=100)
