@@ -212,6 +212,77 @@ def test_llm_provider_transport_type_accepts_only_async_transport() -> None:
     assert hints["transport"] == httpx.AsyncBaseTransport | None
 
 
+def test_visible_payload_sanitizes_action_history_hidden_cards() -> None:
+    engine, state = preflop_facing_bet_state()
+    acting_seat = state.current_actor_seat
+    opponent_seat = next(
+        player.seat for player in state.players if player.seat != acting_seat
+    )
+    legal_actions = engine.legal_actions(state, acting_seat)
+    state.hand_history.append(
+        {
+            "type": "action",
+            "street": "preflop",
+            "seat": opponent_seat,
+            "action": "call",
+            "amount": 10,
+            "hole_cards": ["Kc", "Kd"],
+            "debug": {"hole_cards": ["Kc", "Kd"]},
+        }
+    )
+    state.hand_history.append(
+        {
+            "type": "debug_reveal",
+            "seat": opponent_seat,
+            "hole_cards": ["Qs", "Qh"],
+            "cards": ["Qs", "Qh"],
+        }
+    )
+    state.hand_history.append(
+        {
+            "type": "showdown",
+            "ranks": {
+                opponent_seat: {
+                    "category": "PAIR",
+                    "tiebreakers": (13, 12, 8),
+                    "hole_cards": ["Kc", "Kd"],
+                }
+            },
+            "winners": [opponent_seat],
+        }
+    )
+    state.hand_history.append({"type": "deal", "cards": ["Qs", "Qh"]})
+    service = AIService(primary_provider=HeuristicProvider())
+
+    payload = service.build_visible_payload(state, acting_seat, legal_actions)
+
+    history = payload["action_history"]
+    assert history[-4] == {
+        "type": "action",
+        "street": "preflop",
+        "seat": opponent_seat,
+        "action": "call",
+        "amount": 10,
+    }
+    assert history[-3] == {"type": "debug_reveal"}
+    assert history[-2] == {
+        "type": "showdown",
+        "ranks": {
+            opponent_seat: {
+                "category": "PAIR",
+                "tiebreakers": (13, 12, 8),
+            }
+        },
+        "winners": [opponent_seat],
+    }
+    assert history[-1] == {"type": "deal"}
+    assert "hole_cards" not in repr(history)
+    assert "Kc" not in repr(history)
+    assert "Kd" not in repr(history)
+    assert "Qs" not in repr(history)
+    assert "Qh" not in repr(history)
+
+
 @pytest.mark.asyncio
 async def test_ai_service_hides_opponent_hole_cards_from_visible_prompt_payload() -> None:
     class CapturingProvider:

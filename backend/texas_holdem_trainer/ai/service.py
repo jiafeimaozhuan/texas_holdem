@@ -14,7 +14,7 @@ class AIService:
     def __init__(
         self,
         primary_provider: AIProvider,
-        fallback_provider: HeuristicProvider | None = None,
+        fallback_provider: AIProvider | None = None,
     ) -> None:
         self.primary_provider = primary_provider
         self.fallback_provider = fallback_provider or HeuristicProvider()
@@ -106,7 +106,9 @@ class AIService:
                 }
                 for action in legal_actions
             ],
-            "action_history": list(state.hand_history),
+            "action_history": [
+                _sanitize_history_entry(entry) for entry in state.hand_history
+            ],
         }
 
     def is_legal_result(
@@ -162,3 +164,100 @@ def _card_to_string(card: Card) -> str:
         14: "A",
     }
     return f"{rank_names[int(card.rank)]}{card.suit.value}"
+
+
+def _sanitize_history_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
+    event_type = entry.get("type")
+    if not isinstance(event_type, str):
+        return {}
+
+    if event_type == "hand_started":
+        return _copy_typed_fields(
+            entry,
+            event_type,
+            {"hand_number": int, "dealer_seat": int},
+        )
+    if event_type == "blind":
+        return _copy_typed_fields(
+            entry,
+            event_type,
+            {"seat": int, "blind": str, "amount": int},
+        )
+    if event_type == "deal":
+        sanitized = {"type": event_type}
+        if isinstance(entry.get("cards"), str):
+            sanitized["cards"] = entry["cards"]
+        return sanitized
+    if event_type == "action":
+        return _copy_typed_fields(
+            entry,
+            event_type,
+            {"street": str, "seat": int, "action": str, "amount": int},
+        )
+    if event_type == "street":
+        return _copy_typed_fields(
+            entry,
+            event_type,
+            {"street": str, "board_count": int},
+        )
+    if event_type == "showdown":
+        sanitized = {"type": event_type}
+        ranks = _sanitize_showdown_ranks(entry.get("ranks"))
+        if ranks:
+            sanitized["ranks"] = ranks
+        winners = _sanitize_int_list(entry.get("winners"))
+        if winners is not None:
+            sanitized["winners"] = winners
+        return sanitized
+    if event_type == "settlement":
+        sanitized = _copy_typed_fields(
+            entry,
+            event_type,
+            {"pot": int, "reason": str, "share": int, "remainder": int},
+        )
+        winners = _sanitize_int_list(entry.get("winners"))
+        if winners is not None:
+            sanitized["winners"] = winners
+        return sanitized
+
+    return {"type": event_type}
+
+
+def _copy_typed_fields(
+    entry: Mapping[str, Any],
+    event_type: str,
+    fields: Mapping[str, type],
+) -> dict[str, Any]:
+    sanitized: dict[str, Any] = {"type": event_type}
+    for field, expected_type in fields.items():
+        value = entry.get(field)
+        if isinstance(value, expected_type) and not isinstance(value, bool):
+            sanitized[field] = value
+    return sanitized
+
+
+def _sanitize_showdown_ranks(value: Any) -> dict[Any, dict[str, Any]]:
+    if not isinstance(value, Mapping):
+        return {}
+
+    sanitized: dict[Any, dict[str, Any]] = {}
+    for seat, rank in value.items():
+        if not isinstance(rank, Mapping):
+            continue
+        rank_payload: dict[str, Any] = {}
+        if isinstance(rank.get("category"), str):
+            rank_payload["category"] = rank["category"]
+        tiebreakers = _sanitize_int_list(rank.get("tiebreakers"))
+        if tiebreakers is not None:
+            rank_payload["tiebreakers"] = tuple(tiebreakers)
+        if rank_payload:
+            sanitized[seat] = rank_payload
+    return sanitized
+
+
+def _sanitize_int_list(value: Any) -> list[int] | None:
+    if not isinstance(value, list | tuple):
+        return None
+    if not all(isinstance(item, int) and not isinstance(item, bool) for item in value):
+        return None
+    return list(value)
