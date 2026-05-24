@@ -101,8 +101,11 @@ function isStaleTableState(
   current: TableStateResponse | null,
   incoming: TableStateResponse,
 ): boolean {
-  if (!current || current.table_id !== incoming.table_id) {
+  if (!current) {
     return false;
+  }
+  if (current.table_id !== incoming.table_id) {
+    return true;
   }
   if (incoming.hand_number !== current.hand_number) {
     return incoming.hand_number < current.hand_number;
@@ -136,16 +139,38 @@ function App() {
     let socket: WebSocket | null = null;
 
     try {
-      socket = connectTableSocket(state.table_id, (incomingState) => {
+      const socketTableId = state.table_id;
+      socket = connectTableSocket(socketTableId, (incomingState) => {
         setState((currentState) =>
           isStaleTableState(currentState, incomingState)
             ? currentState
             : incomingState,
         );
       });
-      socket.addEventListener("open", () => setSocketStatus("live"));
-      socket.addEventListener("close", () => setSocketStatus("offline"));
-      socket.addEventListener("error", () => setSocketStatus("offline"));
+      socket.addEventListener("open", () => {
+        setState((currentState) => {
+          if (currentState?.table_id === socketTableId) {
+            setSocketStatus("live");
+          }
+          return currentState;
+        });
+      });
+      socket.addEventListener("close", () => {
+        setState((currentState) => {
+          if (currentState?.table_id === socketTableId) {
+            setSocketStatus("offline");
+          }
+          return currentState;
+        });
+      });
+      socket.addEventListener("error", () => {
+        setState((currentState) => {
+          if (currentState?.table_id === socketTableId) {
+            setSocketStatus("offline");
+          }
+          return currentState;
+        });
+      });
     } catch {
       setSocketStatus("offline");
     }
