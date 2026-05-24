@@ -283,6 +283,57 @@ def test_visible_payload_sanitizes_action_history_hidden_cards() -> None:
     assert "Qh" not in repr(history)
 
 
+def test_visible_payload_rejects_card_like_strings_in_known_history_fields() -> None:
+    engine, state = preflop_facing_bet_state()
+    acting_seat = state.current_actor_seat
+    legal_actions = engine.legal_actions(state, acting_seat)
+    state.players[acting_seat].hole_cards = [c("2c"), c("3d")]
+    state.hand_history.extend(
+        [
+            {"type": "deal", "cards": "Kc Kd"},
+            {
+                "type": "showdown",
+                "ranks": {
+                    "Kc Kd": {"category": "PAIR", "tiebreakers": [13]},
+                    1: {"category": "PAIR", "tiebreakers": [13]},
+                },
+                "winners": [1],
+            },
+            {
+                "type": "action",
+                "street": "Ah Ad",
+                "seat": 1,
+                "action": "Kc Kd",
+                "amount": 10,
+            },
+            {"type": "blind", "seat": 1, "blind": "Ah Ad", "amount": 5},
+            {
+                "type": "settlement",
+                "winners": [1],
+                "pot": 30,
+                "reason": "Kc Kd",
+            },
+        ]
+    )
+    service = AIService(primary_provider=HeuristicProvider())
+
+    payload = service.build_visible_payload(state, acting_seat, legal_actions)
+
+    payload_repr = repr(payload)
+    assert "Kc Kd" not in payload_repr
+    assert "Ah Ad" not in payload_repr
+    history = payload["action_history"]
+    assert history[-5] == {"type": "deal"}
+    assert history[-4] == {
+        "type": "showdown",
+        "ranks": {1: {"category": "PAIR", "tiebreakers": (13,)}},
+        "winners": [1],
+    }
+    assert history[-3] == {"type": "action", "seat": 1, "amount": 10}
+    assert history[-2] == {"type": "blind", "seat": 1, "amount": 5}
+    assert history[-1] == {"type": "settlement", "winners": [1], "pot": 30}
+
+
 @pytest.mark.asyncio
 async def test_ai_service_hides_opponent_hole_cards_from_visible_prompt_payload() -> None:
     class CapturingProvider:

@@ -10,6 +10,28 @@ from texas_holdem_trainer.domain.cards import Card
 from texas_holdem_trainer.domain.state import GameState
 
 
+_SAFE_BLIND_VALUES = frozenset({"small_blind", "big_blind"})
+_SAFE_DEAL_CARD_VALUES = frozenset({"hole"})
+_SAFE_ACTION_VALUES = frozenset(action.value for action in ActionType)
+_SAFE_STREET_VALUES = frozenset(
+    {"preflop", "flop", "turn", "river", "showdown", "complete", "waiting"},
+)
+_SAFE_SETTLEMENT_REASON_VALUES = frozenset({"fold"})
+_SAFE_HAND_RANK_CATEGORIES = frozenset(
+    {
+        "HIGH_CARD",
+        "PAIR",
+        "TWO_PAIR",
+        "THREE_OF_A_KIND",
+        "STRAIGHT",
+        "FLUSH",
+        "FULL_HOUSE",
+        "FOUR_OF_A_KIND",
+        "STRAIGHT_FLUSH",
+    },
+)
+
+
 class AIService:
     def __init__(
         self,
@@ -182,23 +204,30 @@ def _sanitize_history_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
             entry,
             event_type,
             {"seat": int, "blind": str, "amount": int},
+            allowed_strings={"blind": _SAFE_BLIND_VALUES},
         )
     if event_type == "deal":
         sanitized = {"type": event_type}
-        if isinstance(entry.get("cards"), str):
-            sanitized["cards"] = entry["cards"]
+        cards = entry.get("cards")
+        if isinstance(cards, str) and cards in _SAFE_DEAL_CARD_VALUES:
+            sanitized["cards"] = cards
         return sanitized
     if event_type == "action":
         return _copy_typed_fields(
             entry,
             event_type,
             {"street": str, "seat": int, "action": str, "amount": int},
+            allowed_strings={
+                "street": _SAFE_STREET_VALUES,
+                "action": _SAFE_ACTION_VALUES,
+            },
         )
     if event_type == "street":
         return _copy_typed_fields(
             entry,
             event_type,
             {"street": str, "board_count": int},
+            allowed_strings={"street": _SAFE_STREET_VALUES},
         )
     if event_type == "showdown":
         sanitized = {"type": event_type}
@@ -214,6 +243,7 @@ def _sanitize_history_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
             entry,
             event_type,
             {"pot": int, "reason": str, "share": int, "remainder": int},
+            allowed_strings={"reason": _SAFE_SETTLEMENT_REASON_VALUES},
         )
         winners = _sanitize_int_list(entry.get("winners"))
         if winners is not None:
@@ -227,11 +257,19 @@ def _copy_typed_fields(
     entry: Mapping[str, Any],
     event_type: str,
     fields: Mapping[str, type],
+    allowed_strings: Mapping[str, frozenset[str]] | None = None,
 ) -> dict[str, Any]:
     sanitized: dict[str, Any] = {"type": event_type}
     for field, expected_type in fields.items():
         value = entry.get(field)
         if isinstance(value, expected_type) and not isinstance(value, bool):
+            if (
+                expected_type is str
+                and allowed_strings is not None
+                and field in allowed_strings
+                and value not in allowed_strings[field]
+            ):
+                continue
             sanitized[field] = value
     return sanitized
 
@@ -242,10 +280,12 @@ def _sanitize_showdown_ranks(value: Any) -> dict[Any, dict[str, Any]]:
 
     sanitized: dict[Any, dict[str, Any]] = {}
     for seat, rank in value.items():
+        if not isinstance(seat, int) or isinstance(seat, bool):
+            continue
         if not isinstance(rank, Mapping):
             continue
         rank_payload: dict[str, Any] = {}
-        if isinstance(rank.get("category"), str):
+        if rank.get("category") in _SAFE_HAND_RANK_CATEGORIES:
             rank_payload["category"] = rank["category"]
         tiebreakers = _sanitize_int_list(rank.get("tiebreakers"))
         if tiebreakers is not None:
