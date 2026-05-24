@@ -75,7 +75,7 @@ export function ActionControls({ state, isSubmitting, onSubmit }: ActionControls
     if (!state) {
       return "No table";
     }
-    if (state.current_actor_seat === null) {
+    if (state.current_actor_seat == null) {
       return "Hand idle";
     }
     const actor = state.players.find((player) => player.seat === state.current_actor_seat);

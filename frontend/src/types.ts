@@ -105,7 +105,7 @@ export interface TableStateResponse {
   pot: number;
   current_bet: number;
   min_raise: number;
-  current_actor_seat: number | null;
+  current_actor_seat?: number | null;
   dealer_seat: number;
   small_blind: number;
   big_blind: number;

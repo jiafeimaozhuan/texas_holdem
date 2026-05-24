@@ -90,7 +90,7 @@ function actorStatus(state: TableStateResponse | null): string {
   if (!state) {
     return "No table";
   }
-  if (state.current_actor_seat === null) {
+  if (state.current_actor_seat == null) {
     return "Waiting for hand";
   }
   const actor = state.players.find((player) => player.seat === state.current_actor_seat);
