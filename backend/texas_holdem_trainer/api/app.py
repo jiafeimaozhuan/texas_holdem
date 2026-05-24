@@ -15,10 +15,11 @@ from texas_holdem_trainer.runtime.table_manager import (
     TableManager,
     TableNotFoundError,
 )
+from texas_holdem_trainer.runtime.config import build_default_table_manager
 
 
 app = FastAPI(title="Texas Hold'em Trainer")
-table_manager = TableManager()
+table_manager = build_default_table_manager()
 
 
 @app.post(

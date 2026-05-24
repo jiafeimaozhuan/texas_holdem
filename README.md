@@ -60,9 +60,13 @@ For LLM-backed experiments, copy `.env.example` to `.env` and set provider keys:
 OPENAI_API_KEY=
 DEEPSEEK_API_KEY=
 LLM_TIMEOUT_SECONDS=12
+AI_PLAYERS_CONFIG=config/ai_players.yaml
+AI_DEFAULT_PROVIDER=heuristic
 ```
 
-Example provider/profile configuration is in `config/ai_players.example.yaml`. LLMs only choose an AI player's action and public explanation. Legal actions, winners, chip movement, and all poker rules remain enforced by backend code.
+Then copy `config/ai_players.example.yaml` to `config/ai_players.yaml` and set a bot profile provider to `openai` or `deepseek`, or set `AI_DEFAULT_PROVIDER=openai` to use that configured provider for styles without an explicit profile override. Providers without an API key are skipped and those bots fall back to heuristic play.
+
+LLMs only choose an AI player's action and public explanation. Legal actions, winners, chip movement, and all poker rules remain enforced by backend code.
 
 ## Verification
 

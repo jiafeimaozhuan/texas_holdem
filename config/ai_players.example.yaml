@@ -13,6 +13,8 @@ profiles:
   - name: "TAG Bot"
     style: "tight_aggressive"
     provider: "heuristic"
+    # provider: "openai"
   - name: "LAG Bot"
     style: "loose_aggressive"
     provider: "heuristic"
+    # provider: "deepseek"

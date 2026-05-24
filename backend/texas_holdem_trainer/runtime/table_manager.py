@@ -41,15 +41,23 @@ class TableSession:
     subscribers: set[asyncio.Queue[TableStateResponse]] = field(default_factory=set)
 
 
+@dataclass(frozen=True)
+class BotProviderTemplate:
+    provider: str = "heuristic"
+    model: str | None = None
+
+
 class TableManager:
     def __init__(
         self,
         *,
         engine: PokerEngine | None = None,
         ai_service: AIService | None = None,
+        bot_provider_templates: dict[BotStyle, BotProviderTemplate] | None = None,
     ) -> None:
         self.engine = engine or PokerEngine()
         self.ai_service = ai_service or AIService(primary_provider=HeuristicProvider())
+        self.bot_provider_templates = bot_provider_templates or {}
         self.tables: dict[str, TableSession] = {}
         self._next_table_number = 1
 
@@ -285,7 +293,14 @@ class TableManager:
         for player in state.players:
             if player.is_human:
                 continue
-            profiles[player.seat] = BotProfile.for_style(player.name, next(style_cycle))
+            style = next(style_cycle)
+            template = self.bot_provider_templates.get(style, BotProviderTemplate())
+            profiles[player.seat] = BotProfile.for_style(
+                player.name,
+                style,
+                provider=template.provider,
+                model=template.model,
+            )
         return profiles
 
     def _ai_provider_status(self, profiles: dict[int, BotProfile]) -> str:

@@ -37,9 +37,11 @@ class AIService:
         self,
         primary_provider: AIProvider,
         fallback_provider: AIProvider | None = None,
+        providers: Mapping[str, AIProvider] | None = None,
     ) -> None:
         self.primary_provider = primary_provider
         self.fallback_provider = fallback_provider or HeuristicProvider()
+        self.providers = dict(providers or {})
 
     async def decide(
         self,
@@ -49,8 +51,9 @@ class AIService:
         legal_actions: Sequence[LegalAction],
     ) -> DecisionResult:
         visible_state = self.build_visible_payload(state, seat, legal_actions)
+        provider = self.providers.get(profile.provider, self.primary_provider)
         try:
-            result = await self.primary_provider.decide(
+            result = await provider.decide(
                 state,
                 seat,
                 profile,
