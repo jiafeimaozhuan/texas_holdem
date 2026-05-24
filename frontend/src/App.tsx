@@ -113,6 +113,13 @@ function isStaleTableState(
   return (streetOrder[incoming.street] ?? 0) < (streetOrder[current.street] ?? 0);
 }
 
+function mergeTableState(
+  current: TableStateResponse | null,
+  incoming: TableStateResponse,
+): TableStateResponse | null {
+  return isStaleTableState(current, incoming) ? current : incoming;
+}
+
 function App() {
   const [tableConfig, setTableConfig] =
     useState<CreateTableRequest>(defaultTableRequest);
@@ -141,11 +148,7 @@ function App() {
     try {
       const socketTableId = state.table_id;
       socket = connectTableSocket(socketTableId, (incomingState) => {
-        setState((currentState) =>
-          isStaleTableState(currentState, incomingState)
-            ? currentState
-            : incomingState,
-        );
+        setState((currentState) => mergeTableState(currentState, incomingState));
       });
       socket.addEventListener("open", () => {
         setState((currentState) => {
@@ -189,7 +192,7 @@ function App() {
       const nextState = await createTable(request);
       setTableConfig(request);
       setSeatStyles(stylesBySeat(nextState, request));
-      setState(nextState);
+      setState((currentState) => mergeTableState(currentState, nextState));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to create table");
     } finally {
@@ -214,9 +217,10 @@ function App() {
         });
         setTableConfig(request);
         setSeatStyles(stylesBySeat(tableState, request));
+        setState((currentState) => mergeTableState(currentState, tableState));
       }
       const nextState = await startHand(tableState.table_id);
-      setState(nextState);
+      setState((currentState) => mergeTableState(currentState, nextState));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to start hand");
     } finally {
@@ -234,7 +238,7 @@ function App() {
 
     try {
       const nextState = await submitAction(state.table_id, { action, amount });
-      setState(nextState);
+      setState((currentState) => mergeTableState(currentState, nextState));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to submit action");
     } finally {
@@ -254,7 +258,7 @@ function App() {
           <button
             type="button"
             onClick={handleStartHand}
-            disabled={!canStartHand || isStartingHand}
+            disabled={!canStartHand || isCreating || isStartingHand || isSubmitting}
           >
             {isStartingHand ? "Starting..." : "Start Hand"}
           </button>
@@ -296,7 +300,7 @@ function App() {
           <CoachPanel events={state?.coach_events ?? []} />
           <SettingsPanel
             config={tableConfig}
-            disabled={isCreating}
+            disabled={isCreating || isStartingHand || isSubmitting}
             providerStatus={state?.ai_provider_status ?? null}
             onChange={setTableConfig}
             onCreateTable={handleCreateTable}
