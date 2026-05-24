@@ -153,7 +153,7 @@ class LLMProvider:
         api_key: str,
         model: str,
         timeout: float = 10.0,
-        transport: httpx.AsyncBaseTransport | httpx.BaseTransport | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key

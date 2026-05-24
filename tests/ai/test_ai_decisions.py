@@ -1,3 +1,5 @@
+from typing import get_type_hints
+
 import httpx
 import pytest
 
@@ -105,6 +107,34 @@ async def test_ai_service_records_fallback_when_primary_provider_times_out() -> 
 
 
 @pytest.mark.asyncio
+async def test_ai_service_records_fallback_when_llm_provider_times_out() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("read timed out", request=request)
+
+    engine, state = preflop_facing_bet_state()
+    seat = state.current_actor_seat
+    legal_actions = engine.legal_actions(state, seat)
+    provider = LLMProvider(
+        base_url="https://example.test",
+        api_key="secret-token",
+        model="test-model",
+        transport=httpx.MockTransport(handler),
+    )
+    service = AIService(primary_provider=provider)
+
+    result = await service.decide(
+        state,
+        seat,
+        BotProfile.for_style("bot", BotStyle.TIGHT_AGGRESSIVE, provider="llm"),
+        legal_actions,
+    )
+
+    assert result.fallback_used is True
+    assert result.fallback_reason == "primary_provider_error: ReadTimeout"
+    assert is_backend_legal(result, legal_actions)
+
+
+@pytest.mark.asyncio
 async def test_ai_service_records_fallback_when_primary_returns_illegal_action() -> None:
     class IllegalProvider:
         async def decide(self, state, seat, profile, legal_actions, visible_state=None):
@@ -131,6 +161,55 @@ async def test_ai_service_records_fallback_when_primary_returns_illegal_action()
     assert result.fallback_reason == "illegal_primary_action"
     assert result.action is not ActionType.CHECK
     assert is_backend_legal(result, legal_actions)
+
+
+@pytest.mark.asyncio
+async def test_ai_service_records_fallback_when_llm_provider_returns_illegal_action() -> None:
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                '{"action":"check","amount":0,'
+                                '"confidence":0.92,"reasoning":"not facing a bet"}'
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+    )
+    engine, state = preflop_facing_bet_state()
+    seat = state.current_actor_seat
+    legal_actions = engine.legal_actions(state, seat)
+    provider = LLMProvider(
+        base_url="https://example.test",
+        api_key="secret-token",
+        model="test-model",
+        transport=transport,
+    )
+    service = AIService(primary_provider=provider)
+
+    result = await service.decide(
+        state,
+        seat,
+        BotProfile.for_style("bot", BotStyle.TIGHT_AGGRESSIVE, provider="llm"),
+        legal_actions,
+    )
+
+    assert result.fallback_used is True
+    assert result.fallback_reason == "illegal_primary_action"
+    assert result.action is not ActionType.CHECK
+    assert is_backend_legal(result, legal_actions)
+
+
+def test_llm_provider_transport_type_accepts_only_async_transport() -> None:
+    hints = get_type_hints(LLMProvider.__init__)
+
+    assert hints["transport"] == httpx.AsyncBaseTransport | None
 
 
 @pytest.mark.asyncio
