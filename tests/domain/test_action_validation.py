@@ -26,6 +26,33 @@ def pending_call_all_in_state():
     return engine, state
 
 
+def short_player_facing_large_bet_state():
+    engine = PokerEngine()
+    state = engine.create_table(
+        table_id="t1",
+        player_names=["Short", "Caller", "Bettor"],
+        human_seat=0,
+        starting_stack=100,
+        small_blind=5,
+        big_blind=10,
+        seed=13,
+    )
+    engine.start_hand(state)
+    player = state.players[0]
+    player.stack = 25
+    player.street_bet = 0
+    player.total_committed = 0
+    player.all_in = False
+    state.players[1].stack = 100
+    state.players[1].all_in = False
+    state.players[2].stack = 100
+    state.players[2].street_bet = 75
+    state.current_bet = 75
+    state.min_raise = 50
+    state.current_actor_seat = 0
+    return engine, state
+
+
 def test_legal_actions_when_facing_bet_include_call_raise_and_all_in() -> None:
     engine = PokerEngine()
     state = engine.create_table(
@@ -133,3 +160,22 @@ def test_pending_call_against_all_in_rejects_uncallable_extra_chips(
 
     assert state.players[1].stack == 90
     assert state.players[1].street_bet == 10
+
+
+def test_short_player_facing_bet_cannot_raise_but_can_move_all_in() -> None:
+    engine, state = short_player_facing_large_bet_state()
+
+    legal = engine.legal_actions(state, 0)
+    types = {action.type for action in legal}
+
+    assert ActionType.RAISE not in types
+    assert {ActionType.FOLD, ActionType.CALL, ActionType.ALL_IN} <= types
+
+    with pytest.raises(ValueError, match="minimum raise"):
+        engine.apply_action(state, 0, ActionType.RAISE, amount=25)
+
+    engine.apply_action(state, 0, ActionType.ALL_IN, amount=25)
+
+    assert state.players[0].all_in is True
+    assert state.players[0].street_bet == 25
+    assert state.hand_history[-1]["action"] == "all_in"

@@ -59,6 +59,36 @@ def test_start_hand_posts_blinds_deals_hole_cards_and_sets_preflop_order() -> No
     ]
 
 
+def test_start_hand_uses_heads_up_blinds_when_only_two_seats_are_funded() -> None:
+    engine = PokerEngine()
+    state = engine.create_table(
+        table_id="t1",
+        player_names=["Button", "Big Blind", "Busted"],
+        human_seat=0,
+        starting_stack=100,
+        small_blind=5,
+        big_blind=10,
+        seed=29,
+    )
+    state.players[2].stack = 0
+
+    engine.start_hand(state)
+
+    assert state.street is Street.PREFLOP
+    assert state.dealer_seat == 0
+    assert state.current_actor_seat == 0
+    assert state.current_bet == 10
+    assert state.pot == 15
+    assert [player.stack for player in state.players] == [95, 90, 0]
+    assert state.players[0].street_bet == 5
+    assert state.players[1].street_bet == 10
+    assert state.players[2].folded is True
+    assert [entry["seat"] for entry in state.hand_history if entry["type"] == "blind"] == [
+        0,
+        1,
+    ]
+
+
 def test_hand_progresses_through_streets_and_settles_showdown() -> None:
     engine = PokerEngine()
     state = engine.create_table(

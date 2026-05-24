@@ -198,7 +198,7 @@ class PokerEngine:
             if not self._has_other_player_who_can_respond(state, seat):
                 raise ValueError("cannot commit uncallable chips")
             min_raise_amount = state.current_bet + state.min_raise - player.street_bet
-            if amount < min_raise_amount and amount != player.stack:
+            if amount < min_raise_amount:
                 raise ValueError("raise amount is below the minimum raise")
             committed = self._commit_aggressive(state, player, amount)
         elif action is ActionType.ALL_IN:
@@ -233,8 +233,12 @@ class PokerEngine:
         return state.seed + state.hand_number - 1
 
     def _blind_seats(self, state: GameState) -> tuple[int, int]:
-        if len(state.players) == 2:
-            return state.dealer_seat, self._next_seat_with_stack(state, state.dealer_seat)
+        if len(self._players_dealt_in(state)) == 2:
+            button = state.dealer_seat
+            if state.players[button].stack <= 0:
+                button = self._next_seat_with_stack(state, button)
+                state.dealer_seat = button
+            return button, self._next_seat_with_stack(state, button)
         small_blind = self._next_seat_with_stack(state, state.dealer_seat)
         big_blind = self._next_seat_with_stack(state, small_blind)
         return small_blind, big_blind
@@ -407,12 +411,15 @@ class PokerEngine:
         state: GameState,
         big_blind_seat: int,
     ) -> int | None:
-        if len(state.players) == 2:
+        if len(self._players_dealt_in(state)) == 2:
             candidate = state.players[state.dealer_seat]
             if not candidate.folded and not candidate.all_in and candidate.stack > 0:
                 return state.dealer_seat
             return self._next_actionable_seat(state, state.dealer_seat)
         return self._next_actionable_seat(state, big_blind_seat)
+
+    def _players_dealt_in(self, state: GameState) -> list[PlayerState]:
+        return [player for player in state.players if not player.folded]
 
     def _first_postflop_actor(self, state: GameState) -> int | None:
         return self._next_actionable_seat(state, state.dealer_seat)
