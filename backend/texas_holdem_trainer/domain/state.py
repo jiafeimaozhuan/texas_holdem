@@ -29,6 +29,8 @@ class PlayerState:
     total_committed: int = 0
 
     def commit_chips(self, amount: int) -> int:
+        if not isinstance(amount, int) or isinstance(amount, bool):
+            raise TypeError("amount must be an integer")
         if amount < 0:
             raise ValueError("amount must be non-negative")
 

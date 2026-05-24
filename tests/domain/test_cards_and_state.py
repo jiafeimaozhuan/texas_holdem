@@ -1,3 +1,5 @@
+import pytest
+
 from texas_holdem_trainer.domain.actions import ActionType, LegalAction
 from texas_holdem_trainer.domain.cards import Deck, Rank, Suit
 from texas_holdem_trainer.domain.state import GameState, PlayerState, Street
@@ -26,6 +28,16 @@ def test_player_state_tracks_bet_and_stack():
     assert player.stack == 975
     assert player.street_bet == 25
     assert player.total_committed == 25
+
+
+def test_player_state_rejects_non_integer_chip_amount_without_mutation():
+    player = PlayerState(seat=0, name="Hero", stack=1000, is_human=True)
+    before = (player.stack, player.street_bet, player.total_committed, player.all_in)
+
+    with pytest.raises(TypeError):
+        player.commit_chips(1.5)
+
+    assert (player.stack, player.street_bet, player.total_committed, player.all_in) == before
 
 
 def test_game_state_active_players_excludes_folded_and_busted():
