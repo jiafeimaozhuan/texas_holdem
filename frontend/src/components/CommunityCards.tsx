@@ -42,16 +42,16 @@ export function PlayingCard({
 function suitSymbol(suit: string): string {
   const normalized = suit.toLowerCase();
   if (normalized === "s" || normalized === "spades") {
-    return "S";
+    return "♠️";
   }
   if (normalized === "h" || normalized === "hearts") {
-    return "H";
+    return "♥️";
   }
   if (normalized === "d" || normalized === "diamonds") {
-    return "D";
+    return "♦️";
   }
   if (normalized === "c" || normalized === "clubs") {
-    return "C";
+    return "♣️";
   }
   return suit.toUpperCase();
 }
