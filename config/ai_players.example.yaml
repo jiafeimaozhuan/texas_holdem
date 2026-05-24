@@ -1,0 +1,18 @@
+providers:
+  openai:
+    base_url: "https://api.openai.com/v1"
+    api_key_env: "OPENAI_API_KEY"
+    model: "gpt-4.1-mini"
+    temperature: 0.4
+  deepseek:
+    base_url: "https://api.deepseek.com/v1"
+    api_key_env: "DEEPSEEK_API_KEY"
+    model: "deepseek-chat"
+    temperature: 0.4
+profiles:
+  - name: "TAG Bot"
+    style: "tight_aggressive"
+    provider: "heuristic"
+  - name: "LAG Bot"
+    style: "loose_aggressive"
+    provider: "heuristic"
