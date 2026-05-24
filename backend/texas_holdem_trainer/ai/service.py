@@ -80,7 +80,13 @@ class AIService:
                 "illegal_primary_action",
             )
 
-        return self._sanitize_decision_reasoning(result, state, seat)
+        return self._with_public_reasoning(
+            result,
+            profile,
+            legal_actions,
+            fallback_used=False,
+            fallback_reason=None,
+        )
 
     def sanitize_public_reasoning(
         self,
@@ -179,22 +185,52 @@ class AIService:
             legal_actions,
             visible_state=visible_state,
         )
+        if not isinstance(fallback, DecisionResult):
+            raise ValueError("fallback provider returned a malformed decision")
         if not self.is_legal_result(fallback, legal_actions):
             raise ValueError("fallback provider returned an illegal action")
-        sanitized = self._sanitize_decision_reasoning(fallback, state, seat)
-        return replace(sanitized, fallback_used=True, fallback_reason=reason)
+        return self._with_public_reasoning(
+            fallback,
+            profile,
+            legal_actions,
+            fallback_used=True,
+            fallback_reason=reason,
+        )
 
-    def _sanitize_decision_reasoning(
+    def _with_public_reasoning(
         self,
         result: DecisionResult,
-        state: GameState,
-        seat: int,
+        profile: BotProfile,
+        legal_actions: Sequence[LegalAction],
+        *,
+        fallback_used: bool,
+        fallback_reason: str | None,
     ) -> DecisionResult:
-        private_cards = state.players[seat].hole_cards
-        reasoning = self.sanitize_public_reasoning(result.reasoning, private_cards)
-        if reasoning == result.reasoning:
-            return result
-        return replace(result, reasoning=reasoning)
+        return replace(
+            result,
+            reasoning=self._build_public_reasoning(
+                result,
+                profile,
+                legal_actions,
+                fallback_used=fallback_used,
+            ),
+            fallback_used=fallback_used,
+            fallback_reason=fallback_reason,
+        )
+
+    def _build_public_reasoning(
+        self,
+        result: DecisionResult,
+        profile: BotProfile,
+        legal_actions: Sequence[LegalAction],
+        *,
+        fallback_used: bool,
+    ) -> str:
+        style = profile.style.value.replace("_", " ")
+        action = _describe_action(result)
+        context = _describe_legal_context(legal_actions)
+        prefix = "Fallback was used; " if fallback_used else ""
+        return f"{prefix}{style} profile chose to {action} {context}."
 
 
 def _card_to_string(card: Card) -> str:
@@ -214,6 +250,31 @@ def _card_to_string(card: Card) -> str:
         14: "A",
     }
     return f"{rank_names[int(card.rank)]}{card.suit.value}"
+
+
+def _describe_action(result: DecisionResult) -> str:
+    if result.action is ActionType.FOLD:
+        return "fold"
+    if result.action is ActionType.CHECK:
+        return "check"
+    if result.action is ActionType.CALL:
+        return f"call {result.amount}"
+    if result.action is ActionType.BET:
+        return f"bet {result.amount}"
+    if result.action is ActionType.RAISE:
+        return f"raise to {result.amount}"
+    if result.action is ActionType.ALL_IN:
+        return f"move all-in for {result.amount}"
+    return result.action.value
+
+
+def _describe_legal_context(legal_actions: Sequence[LegalAction]) -> str:
+    legal_action_names = ", ".join(action.type.value for action in legal_actions)
+    if any(action.type is ActionType.CALL for action in legal_actions):
+        return f"while facing a bet with legal options: {legal_action_names}"
+    if any(action.type is ActionType.CHECK for action in legal_actions):
+        return f"with no bet faced and legal options: {legal_action_names}"
+    return f"from legal options: {legal_action_names}"
 
 
 def _sanitize_history_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
