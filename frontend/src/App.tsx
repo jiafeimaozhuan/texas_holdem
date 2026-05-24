@@ -4,6 +4,7 @@ import {
   createTable,
   startHand,
   submitAction,
+  updateBots,
 } from "./api/client";
 import { ActionControls } from "./components/ActionControls";
 import { CoachPanel } from "./components/CoachPanel";
@@ -144,11 +145,20 @@ function App() {
       return;
     }
 
+    const request = normalizeRequest(tableConfig);
     setIsStartingHand(true);
     setError(null);
 
     try {
-      const nextState = await startHand(state.table_id);
+      let tableState = state;
+      if (state.street === "waiting" || state.street === "complete") {
+        tableState = await updateBots(state.table_id, {
+          bot_styles: request.bot_styles,
+        });
+        setTableConfig(request);
+        setSeatStyles(stylesBySeat(tableState, request));
+      }
+      const nextState = await startHand(tableState.table_id);
       setState(nextState);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to start hand");
