@@ -96,10 +96,12 @@ export function ActionControls({ state, isSubmitting, onSubmit }: ActionControls
           <span className="muted-state">No legal actions</span>
         ) : (
           legalActions.map((legalAction) => {
-            const hasRange =
-              rangedActions.has(legalAction.action) &&
-              legalAction.min_amount !== legalAction.max_amount;
-            const amount = amounts[legalAction.action];
+            const hasAmountControl = rangedActions.has(legalAction.action);
+            const isFixedAmount = legalAction.min_amount === legalAction.max_amount;
+            const amount = clampAmount(
+              amounts[legalAction.action] ?? defaultAmount(legalAction),
+              legalAction,
+            );
 
             return (
               <div className="action-row" key={legalAction.action}>
@@ -111,11 +113,13 @@ export function ActionControls({ state, isSubmitting, onSubmit }: ActionControls
                   disabled={!isHumanTurn || isSubmitting}
                 >
                   {actionLabel(legalAction.action)}
-                  {!hasRange && legalAction.action !== "fold" && legalAction.action !== "check"
+                  {!hasAmountControl &&
+                  legalAction.action !== "fold" &&
+                  legalAction.action !== "check"
                     ? ` ${legalAction.min_amount}`
                     : ""}
                 </button>
-                {hasRange ? (
+                {hasAmountControl ? (
                   <label className="amount-control">
                     <span>Amount</span>
                     <input
@@ -124,7 +128,11 @@ export function ActionControls({ state, isSubmitting, onSubmit }: ActionControls
                       max={legalAction.max_amount}
                       value={amount}
                       disabled={!isHumanTurn || isSubmitting}
+                      readOnly={isFixedAmount}
                       onChange={(event) => {
+                        if (isFixedAmount) {
+                          return;
+                        }
                         const value = Number(event.target.value);
                         setAmounts((current) => ({
                           ...current,
