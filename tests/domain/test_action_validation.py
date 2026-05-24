@@ -2,6 +2,7 @@ import pytest
 
 from texas_holdem_trainer.domain.actions import ActionType
 from texas_holdem_trainer.domain.engine import PokerEngine
+from texas_holdem_trainer.domain.state import Street
 
 
 def action_by_type(state, action_type: ActionType):
@@ -251,3 +252,39 @@ def test_full_all_in_raise_reopens_action_to_prior_caller() -> None:
     types = {action.type for action in legal}
 
     assert {ActionType.FOLD, ActionType.CALL, ActionType.RAISE, ActionType.ALL_IN} <= types
+
+
+def test_cumulative_short_all_ins_reopen_action_to_prior_bettor() -> None:
+    engine = PokerEngine()
+    state = engine.create_table(
+        table_id="t1",
+        player_names=["Bettor", "Short One", "Short Two", "Caller"],
+        human_seat=0,
+        starting_stack=500,
+        small_blind=50,
+        big_blind=100,
+        seed=23,
+    )
+    state.street = Street.FLOP
+    state.current_actor_seat = 0
+    state.current_bet = 0
+    state.min_raise = 100
+    state.players[1].stack = 150
+    state.players[2].stack = 200
+
+    engine.apply_action(state, 0, ActionType.BET, amount=100)
+    engine.apply_action(state, 1, ActionType.ALL_IN, amount=150)
+    engine.apply_action(state, 2, ActionType.ALL_IN, amount=200)
+    engine.apply_action(state, 3, ActionType.CALL)
+
+    assert state.current_actor_seat == 0
+    assert state.current_bet == 200
+    assert state.min_raise == 100
+    assert state.players[0].acted_this_street is True
+
+    legal = engine.legal_actions(state, 0)
+    types = {action.type for action in legal}
+
+    assert {ActionType.FOLD, ActionType.CALL, ActionType.RAISE, ActionType.ALL_IN} <= types
+    raise_action = next(action for action in legal if action.type is ActionType.RAISE)
+    assert raise_action.min_amount == 200

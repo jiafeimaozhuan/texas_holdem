@@ -28,6 +28,8 @@ class PlayerState:
     street_bet: int = 0
     total_committed: int = 0
     acted_this_street: bool = False
+    # Street bet level this player matched or set with their last action.
+    last_acted_street_bet: int = 0
 
     def commit_chips(self, amount: int) -> int:
         if not isinstance(amount, int) or isinstance(amount, bool):

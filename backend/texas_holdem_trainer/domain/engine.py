@@ -82,6 +82,7 @@ class PokerEngine:
             player.street_bet = 0
             player.total_committed = 0
             player.acted_this_street = False
+            player.last_acted_street_bet = 0
 
         small_blind_seat, big_blind_seat = self._blind_seats(state)
         self._post_blind(state, small_blind_seat, state.small_blind, "small_blind")
@@ -109,6 +110,7 @@ class PokerEngine:
 
         call_amount = max(0, state.current_bet - player.street_bet)
         can_be_called = self._has_other_player_who_can_respond(state, seat)
+        betting_reopened = self._betting_reopened_for(state, player)
         actions: list[LegalAction] = []
 
         if call_amount > 0:
@@ -123,7 +125,7 @@ class PokerEngine:
             min_raise_amount = state.current_bet + state.min_raise - player.street_bet
             if (
                 can_be_called
-                and not player.acted_this_street
+                and betting_reopened
                 and player.stack >= min_raise_amount
             ):
                 actions.append(
@@ -144,7 +146,7 @@ class PokerEngine:
                     )
                 )
 
-        can_commit_extra = call_amount == 0 or not player.acted_this_street
+        can_commit_extra = call_amount == 0 or betting_reopened
         if player.stack > 0 and (
             player.stack <= call_amount or (can_be_called and can_commit_extra)
         ):
@@ -204,7 +206,7 @@ class PokerEngine:
                 raise ValueError("cannot raise without facing a bet")
             if not self._has_other_player_who_can_respond(state, seat):
                 raise ValueError("cannot commit uncallable chips")
-            if player.acted_this_street:
+            if not self._betting_reopened_for(state, player):
                 raise ValueError("betting has not been reopened")
             min_raise_amount = state.current_bet + state.min_raise - player.street_bet
             if amount < min_raise_amount:
@@ -219,13 +221,17 @@ class PokerEngine:
                 and not self._has_other_player_who_can_respond(state, seat)
             ):
                 raise ValueError("cannot commit uncallable chips")
-            if all_in_amount > call_amount and player.acted_this_street:
+            if all_in_amount > call_amount and not self._betting_reopened_for(
+                state,
+                player,
+            ):
                 raise ValueError("betting has not been reopened")
             committed = self._commit_aggressive(state, player, all_in_amount)
         else:
             raise ValueError(f"unsupported action: {action}")
 
         player.acted_this_street = True
+        player.last_acted_street_bet = player.street_bet
         state.hand_history.append(
             {
                 "type": "action",
@@ -327,6 +333,11 @@ class PokerEngine:
                         other.acted_this_street = False
         return committed
 
+    def _betting_reopened_for(self, state: GameState, player: PlayerState) -> bool:
+        if not player.acted_this_street:
+            return True
+        return state.current_bet - player.last_acted_street_bet >= state.min_raise
+
     def _resolve_after_action(self, state: GameState) -> None:
         while True:
             remaining = [player for player in state.players if not player.folded]
@@ -376,6 +387,7 @@ class PokerEngine:
         for player in state.players:
             player.street_bet = 0
             player.acted_this_street = False
+            player.last_acted_street_bet = 0
 
         self._deal_board(state, next_street)
         state.current_actor_seat = self._first_postflop_actor(state)
