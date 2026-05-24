@@ -1,12 +1,32 @@
 import type {
   CreateTableRequest,
+  HistoryEventView,
   StartHandResponse,
   SubmitActionRequest,
   TableStateResponse,
+  UpdateBotsRequest,
 } from "../types";
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "http://127.0.0.1:8000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "";
+const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL?.replace(/\/$/, "");
+
+export interface HistoryResponse {
+  table_id: string;
+  events: HistoryEventView[];
+}
+
+function getWebSocketBaseUrl(): string {
+  if (WS_BASE_URL) {
+    return WS_BASE_URL;
+  }
+
+  if (API_BASE_URL) {
+    return API_BASE_URL.replace(/^http/, "ws");
+  }
+
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}`;
+}
 
 async function requestJson<TResponse>(
   path: string,
@@ -39,11 +59,29 @@ export async function createTable(
   });
 }
 
+export async function getTable(tableId: string): Promise<TableStateResponse> {
+  return requestJson<TableStateResponse>(`/api/table/${tableId}`);
+}
+
 export async function startHand(tableId: string): Promise<TableStateResponse> {
   const response = await requestJson<StartHandResponse>(`/api/table/${tableId}/hand`, {
     method: "POST",
   });
   return response.state;
+}
+
+export async function getHistory(tableId: string): Promise<HistoryResponse> {
+  return requestJson<HistoryResponse>(`/api/table/${tableId}/history`);
+}
+
+export async function updateBots(
+  tableId: string,
+  request: UpdateBotsRequest,
+): Promise<TableStateResponse> {
+  return requestJson<TableStateResponse>(`/api/table/${tableId}/bots`, {
+    method: "PUT",
+    body: JSON.stringify(request),
+  });
 }
 
 export async function submitAction(
@@ -60,7 +98,7 @@ export function connectTableSocket(
   tableId: string,
   onState: (state: TableStateResponse) => void,
 ): WebSocket {
-  const socketBase = API_BASE_URL.replace(/^http/, "ws");
+  const socketBase = getWebSocketBaseUrl();
   const socket = new WebSocket(`${socketBase}/ws/table/${tableId}`);
 
   socket.addEventListener("message", (event) => {
