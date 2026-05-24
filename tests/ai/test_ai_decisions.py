@@ -206,6 +206,100 @@ async def test_ai_service_records_fallback_when_llm_provider_returns_illegal_act
     assert is_backend_legal(result, legal_actions)
 
 
+@pytest.mark.asyncio
+async def test_ai_service_redacts_private_hole_cards_from_primary_reasoning() -> None:
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                '{"action":"call","amount":10,"confidence":0.81,'
+                                '"reasoning":"I hold Kc Kd and can continue."}'
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+    )
+    engine, state = preflop_facing_bet_state()
+    seat = state.current_actor_seat
+    state.players[seat].hole_cards = [c("Kc"), c("Kd")]
+    legal_actions = engine.legal_actions(state, seat)
+    provider = LLMProvider(
+        base_url="https://example.test",
+        api_key="secret-token",
+        model="test-model",
+        transport=transport,
+    )
+    service = AIService(primary_provider=provider)
+
+    result = await service.decide(
+        state,
+        seat,
+        BotProfile.for_style("bot", BotStyle.TIGHT_AGGRESSIVE, provider="llm"),
+        legal_actions,
+    )
+
+    assert result.fallback_used is False
+    assert result.action is ActionType.CALL
+    assert "Kc" not in result.reasoning
+    assert "Kd" not in result.reasoning
+    assert "[private cards]" in result.reasoning
+    assert "can continue" in result.reasoning
+
+
+@pytest.mark.asyncio
+async def test_ai_service_redacts_private_hole_cards_from_fallback_reasoning() -> None:
+    class IllegalProvider:
+        async def decide(self, state, seat, profile, legal_actions, visible_state=None):
+            return DecisionResult(
+                action=ActionType.CHECK,
+                amount=0,
+                confidence=0.9,
+                reasoning="illegal primary",
+            )
+
+    class LeakyFallbackProvider:
+        async def decide(self, state, seat, profile, legal_actions, visible_state=None):
+            call = next(
+                action for action in legal_actions if action.type is ActionType.CALL
+            )
+            return DecisionResult(
+                action=ActionType.CALL,
+                amount=call.min_amount,
+                confidence=0.64,
+                reasoning="Fallback says Kc Kd is strong enough to call.",
+            )
+
+    engine, state = preflop_facing_bet_state()
+    seat = state.current_actor_seat
+    state.players[seat].hole_cards = [c("Kc"), c("Kd")]
+    legal_actions = engine.legal_actions(state, seat)
+    service = AIService(
+        primary_provider=IllegalProvider(),
+        fallback_provider=LeakyFallbackProvider(),
+    )
+
+    result = await service.decide(
+        state,
+        seat,
+        BotProfile.for_style("bot", BotStyle.TIGHT_AGGRESSIVE),
+        legal_actions,
+    )
+
+    assert result.fallback_used is True
+    assert result.fallback_reason == "illegal_primary_action"
+    assert result.action is ActionType.CALL
+    assert "Kc" not in result.reasoning
+    assert "Kd" not in result.reasoning
+    assert "[private cards]" in result.reasoning
+    assert "strong enough to call" in result.reasoning
+
+
 def test_llm_provider_transport_type_accepts_only_async_transport() -> None:
     hints = get_type_hints(LLMProvider.__init__)
 

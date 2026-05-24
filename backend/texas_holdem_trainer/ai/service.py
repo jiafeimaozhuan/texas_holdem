@@ -80,7 +80,22 @@ class AIService:
                 "illegal_primary_action",
             )
 
-        return result
+        return self._sanitize_decision_reasoning(result, state, seat)
+
+    def sanitize_public_reasoning(
+        self,
+        reasoning: str,
+        private_cards: Sequence[Card],
+    ) -> str:
+        sanitized = reasoning
+        private_card_strings = [_card_to_string(card) for card in private_cards]
+        if len(private_card_strings) == 2:
+            first, second = private_card_strings
+            sanitized = sanitized.replace(f"{first} {second}", "[private cards]")
+            sanitized = sanitized.replace(f"{second} {first}", "[private cards]")
+        for card_string in private_card_strings:
+            sanitized = sanitized.replace(card_string, "[private card]")
+        return sanitized
 
     def build_visible_payload(
         self,
@@ -166,7 +181,20 @@ class AIService:
         )
         if not self.is_legal_result(fallback, legal_actions):
             raise ValueError("fallback provider returned an illegal action")
-        return replace(fallback, fallback_used=True, fallback_reason=reason)
+        sanitized = self._sanitize_decision_reasoning(fallback, state, seat)
+        return replace(sanitized, fallback_used=True, fallback_reason=reason)
+
+    def _sanitize_decision_reasoning(
+        self,
+        result: DecisionResult,
+        state: GameState,
+        seat: int,
+    ) -> DecisionResult:
+        private_cards = state.players[seat].hole_cards
+        reasoning = self.sanitize_public_reasoning(result.reasoning, private_cards)
+        if reasoning == result.reasoning:
+            return result
+        return replace(result, reasoning=reasoning)
 
 
 def _card_to_string(card: Card) -> str:
