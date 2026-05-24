@@ -1,11 +1,34 @@
-import { useMemo, useState } from "react";
-import { createTable, startHand } from "./api/client";
-import type { CreateTableRequest, TableStateResponse } from "./types";
+import { useEffect, useMemo, useState } from "react";
+import {
+  connectTableSocket,
+  createTable,
+  startHand,
+  submitAction,
+} from "./api/client";
+import { ActionControls } from "./components/ActionControls";
+import { CoachPanel } from "./components/CoachPanel";
+import { HandHistoryPanel } from "./components/HandHistoryPanel";
+import { PokerTable } from "./components/PokerTable";
+import { SettingsPanel } from "./components/SettingsPanel";
+import type {
+  ActionType,
+  BotStyle,
+  CreateTableRequest,
+  TableStateResponse,
+} from "./types";
+
+const defaultBotStyles: BotStyle[] = [
+  "tight_aggressive",
+  "loose_aggressive",
+  "conservative",
+  "bluff_heavy",
+  "gto_leaning",
+];
 
 const defaultTableRequest: CreateTableRequest = {
   human_name: "Hero",
   bot_count: 3,
-  bot_styles: ["tight_aggressive", "loose_aggressive", "conservative"],
+  bot_styles: defaultBotStyles.slice(0, 3),
   starting_stack: 1000,
   small_blind: 5,
   big_blind: 10,
@@ -13,27 +36,101 @@ const defaultTableRequest: CreateTableRequest = {
   seed: null,
 };
 
-function App() {
-  const [state, setState] = useState<TableStateResponse | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
-  const [isStartingHand, setIsStartingHand] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+function normalizeRequest(request: CreateTableRequest): CreateTableRequest {
+  const seatCount = Math.min(9, Math.max(2, request.bot_count + 1));
+  const botCount = seatCount - 1;
+  const botStyles = request.bot_styles.slice(0, botCount);
 
-  const tableStatus = useMemo(() => {
-    if (!state) {
-      return "No table";
+  while (botStyles.length < botCount) {
+    botStyles.push(defaultBotStyles[botStyles.length % defaultBotStyles.length]);
+  }
+
+  return {
+    ...request,
+    bot_count: botCount,
+    bot_styles: botStyles,
+    starting_stack: Math.max(1, Math.floor(request.starting_stack)),
+    small_blind: Math.max(1, Math.floor(request.small_blind)),
+    big_blind: Math.max(1, Math.floor(request.big_blind)),
+    human_seat: Math.min(request.human_seat, seatCount - 1),
+  };
+}
+
+function stylesBySeat(
+  state: TableStateResponse,
+  request: CreateTableRequest,
+): Record<number, string> {
+  const styles = normalizeRequest(request).bot_styles;
+  let botIndex = 0;
+
+  return state.players.reduce<Record<number, string>>((accumulator, player) => {
+    if (player.is_human) {
+      accumulator[player.seat] = "human";
+      return accumulator;
     }
 
-    const actor = state.players.find((player) => player.seat === state.current_actor_seat);
-    return actor ? `Waiting on ${actor.name}` : "Waiting for next hand";
-  }, [state]);
+    accumulator[player.seat] = styles[botIndex % styles.length];
+    botIndex += 1;
+    return accumulator;
+  }, {});
+}
+
+function actorStatus(state: TableStateResponse | null): string {
+  if (!state) {
+    return "No table";
+  }
+  if (state.current_actor_seat === null) {
+    return "Waiting for hand";
+  }
+  const actor = state.players.find((player) => player.seat === state.current_actor_seat);
+  return actor ? `${actor.name} to act` : `Seat ${state.current_actor_seat + 1} to act`;
+}
+
+function App() {
+  const [tableConfig, setTableConfig] =
+    useState<CreateTableRequest>(defaultTableRequest);
+  const [state, setState] = useState<TableStateResponse | null>(null);
+  const [seatStyles, setSeatStyles] = useState<Record<number, string>>({});
+  const [isCreating, setIsCreating] = useState(false);
+  const [isStartingHand, setIsStartingHand] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [socketStatus, setSocketStatus] = useState("offline");
+  const [error, setError] = useState<string | null>(null);
+
+  const tableStatus = useMemo(() => actorStatus(state), [state]);
+
+  useEffect(() => {
+    if (!state?.table_id) {
+      setSocketStatus("offline");
+      return;
+    }
+
+    setSocketStatus("connecting");
+    let socket: WebSocket | null = null;
+
+    try {
+      socket = connectTableSocket(state.table_id, setState);
+      socket.addEventListener("open", () => setSocketStatus("live"));
+      socket.addEventListener("close", () => setSocketStatus("offline"));
+      socket.addEventListener("error", () => setSocketStatus("offline"));
+    } catch {
+      setSocketStatus("offline");
+    }
+
+    return () => {
+      socket?.close();
+    };
+  }, [state?.table_id]);
 
   async function handleCreateTable() {
+    const request = normalizeRequest(tableConfig);
     setIsCreating(true);
     setError(null);
 
     try {
-      const nextState = await createTable(defaultTableRequest);
+      const nextState = await createTable(request);
+      setTableConfig(request);
+      setSeatStyles(stylesBySeat(nextState, request));
       setState(nextState);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to create table");
@@ -60,17 +157,33 @@ function App() {
     }
   }
 
+  async function handleSubmitAction(action: ActionType, amount: number) {
+    if (!state) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      const nextState = await submitAction(state.table_id, { action, amount });
+      setState(nextState);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to submit action");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return (
     <main className="app-shell">
-      <section className="toolbar" aria-label="Trainer controls">
+      <header className="app-header">
         <div>
           <h1>Texas Hold&apos;em Trainer</h1>
           <p>{tableStatus}</p>
         </div>
-        <div className="actions">
-          <button type="button" onClick={handleCreateTable} disabled={isCreating}>
-            {isCreating ? "Creating..." : "Create Default Table"}
-          </button>
+        <div className="header-actions">
+          <span className={`socket-pill socket-pill--${socketStatus}`}>{socketStatus}</span>
           <button
             type="button"
             onClick={handleStartHand}
@@ -79,11 +192,11 @@ function App() {
             {isStartingHand ? "Starting..." : "Start Hand"}
           </button>
         </div>
-      </section>
+      </header>
 
       {error ? <div className="error">{error}</div> : null}
 
-      <section className="status-grid" aria-label="Table status">
+      <section className="table-summary" aria-label="Table status">
         <div>
           <span>Table</span>
           <strong>{state?.table_id ?? "-"}</strong>
@@ -102,13 +215,27 @@ function App() {
         </div>
       </section>
 
-      <section className="state-preview" aria-label="State preview">
-        <div className="section-heading">
-          <h2>Latest State</h2>
-          <span>{state ? `${state.players.length} players` : "No state loaded"}</span>
+      <div className="workspace-layout">
+        <div className="table-column">
+          <PokerTable state={state} seatStyles={seatStyles} />
+          <ActionControls
+            state={state}
+            isSubmitting={isSubmitting}
+            onSubmit={handleSubmitAction}
+          />
         </div>
-        <pre>{state ? JSON.stringify(state, null, 2) : "Create a table to load state."}</pre>
-      </section>
+
+        <aside className="side-column" aria-label="Trainer panels">
+          <CoachPanel events={state?.coach_events ?? []} />
+          <SettingsPanel
+            config={tableConfig}
+            disabled={isCreating}
+            onChange={setTableConfig}
+            onCreateTable={handleCreateTable}
+          />
+          <HandHistoryPanel events={state?.history_events ?? []} />
+        </aside>
+      </div>
     </main>
   );
 }
