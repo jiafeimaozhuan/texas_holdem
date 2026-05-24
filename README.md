@@ -50,6 +50,10 @@ cd frontend
 VITE_PROXY_TARGET=http://127.0.0.1:8001 npm run dev
 ```
 
+## Usage Guide
+
+See [docs/usage.md](docs/usage.md) for the detailed Chinese usage guide. It covers the first training session, UI panels, legal actions, AI styles, LLM provider setup, verification commands, troubleshooting, and current MVP limitations.
+
 ## AI Providers
 
 The trainer works without any API keys. AI seats use the local heuristic provider by default, and failed or invalid LLM responses fall back to the heuristic provider.
