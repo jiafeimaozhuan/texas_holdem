@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
-from texas_holdem_trainer.domain.cards import Card
+from texas_holdem_trainer.domain.cards import Card, Deck
 
 
 class Street(str, Enum):
@@ -27,6 +27,7 @@ class PlayerState:
     all_in: bool = False
     street_bet: int = 0
     total_committed: int = 0
+    acted_this_street: bool = False
 
     def commit_chips(self, amount: int) -> int:
         if not isinstance(amount, int) or isinstance(amount, bool):
@@ -53,6 +54,13 @@ class GameState:
     street: Street = Street.WAITING
     board: list[Card] = field(default_factory=list)
     pot: int = 0
+    deck: Deck | None = None
+    current_actor_seat: int | None = None
+    current_bet: int = 0
+    min_raise: int = 0
+    hand_number: int = 0
+    seed: int | None = None
+    hand_history: list[dict] = field(default_factory=list)
 
     def players_in_hand(self) -> list[PlayerState]:
         return [

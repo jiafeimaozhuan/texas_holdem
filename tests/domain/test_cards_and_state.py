@@ -22,6 +22,17 @@ def test_deal_removes_cards_from_deck():
     assert set(first).isdisjoint(second)
 
 
+@pytest.mark.parametrize("count", [True, 1.5])
+def test_deal_rejects_non_integer_counts_without_mutation(count):
+    deck = Deck.new_shuffled(seed=7)
+    before = list(deck.cards)
+
+    with pytest.raises(TypeError):
+        deck.deal(count)
+
+    assert deck.cards == before
+
+
 def test_player_state_tracks_bet_and_stack():
     player = PlayerState(seat=0, name="Hero", stack=1000, is_human=True)
     player.commit_chips(25)
@@ -38,6 +49,18 @@ def test_player_state_rejects_non_integer_chip_amount_without_mutation():
         player.commit_chips(1.5)
 
     assert (player.stack, player.street_bet, player.total_committed, player.all_in) == before
+
+
+def test_player_state_commit_chips_caps_at_stack_and_marks_all_in():
+    player = PlayerState(seat=0, name="Hero", stack=100)
+
+    committed = player.commit_chips(150)
+
+    assert committed == 100
+    assert player.stack == 0
+    assert player.street_bet == 100
+    assert player.total_committed == 100
+    assert player.all_in is True
 
 
 def test_game_state_active_players_excludes_folded_and_busted():

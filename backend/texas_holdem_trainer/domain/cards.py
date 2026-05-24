@@ -45,6 +45,8 @@ class Deck:
         return cls(cards=cards)
 
     def deal(self, count: int) -> list[Card]:
+        if not isinstance(count, int) or isinstance(count, bool):
+            raise TypeError("count must be an integer")
         if count < 0:
             raise ValueError("count must be non-negative")
         if count > len(self.cards):
