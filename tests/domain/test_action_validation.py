@@ -53,6 +53,27 @@ def short_player_facing_large_bet_state():
     return engine, state
 
 
+def insufficient_all_in_after_prior_call_state():
+    engine = PokerEngine()
+    state = engine.create_table(
+        table_id="t1",
+        player_names=["Caller", "Short Small", "Big Blind"],
+        human_seat=0,
+        starting_stack=100,
+        small_blind=5,
+        big_blind=10,
+        seed=17,
+    )
+    state.players[1].stack = 12
+    engine.start_hand(state)
+
+    engine.apply_action(state, 0, ActionType.CALL)
+    engine.apply_action(state, 1, ActionType.ALL_IN, amount=7)
+    engine.apply_action(state, 2, ActionType.CALL)
+
+    return engine, state
+
+
 def test_legal_actions_when_facing_bet_include_call_raise_and_all_in() -> None:
     engine = PokerEngine()
     state = engine.create_table(
@@ -179,3 +200,54 @@ def test_short_player_facing_bet_cannot_raise_but_can_move_all_in() -> None:
     assert state.players[0].all_in is True
     assert state.players[0].street_bet == 25
     assert state.hand_history[-1]["action"] == "all_in"
+
+
+def test_insufficient_all_in_does_not_reopen_raise_to_prior_caller() -> None:
+    engine, state = insufficient_all_in_after_prior_call_state()
+
+    assert state.current_actor_seat == 0
+    assert state.current_bet == 12
+    assert state.min_raise == 10
+    assert state.players[0].acted_this_street is True
+
+    legal = engine.legal_actions(state, 0)
+    types = {action.type for action in legal}
+
+    assert types == {ActionType.FOLD, ActionType.CALL}
+    call = next(action for action in legal if action.type is ActionType.CALL)
+    assert call.min_amount == call.max_amount == 2
+
+    with pytest.raises(ValueError, match="reopened"):
+        engine.apply_action(state, 0, ActionType.RAISE, amount=20)
+
+    with pytest.raises(ValueError, match="reopened"):
+        engine.apply_action(state, 0, ActionType.ALL_IN, amount=90)
+
+
+def test_full_all_in_raise_reopens_action_to_prior_caller() -> None:
+    engine = PokerEngine()
+    state = engine.create_table(
+        table_id="t1",
+        player_names=["Caller", "Full Raise Small", "Big Blind"],
+        human_seat=0,
+        starting_stack=100,
+        small_blind=5,
+        big_blind=10,
+        seed=19,
+    )
+    state.players[1].stack = 25
+    engine.start_hand(state)
+
+    engine.apply_action(state, 0, ActionType.CALL)
+    engine.apply_action(state, 1, ActionType.ALL_IN, amount=20)
+    engine.apply_action(state, 2, ActionType.CALL)
+
+    assert state.current_actor_seat == 0
+    assert state.current_bet == 25
+    assert state.min_raise == 15
+    assert state.players[0].acted_this_street is False
+
+    legal = engine.legal_actions(state, 0)
+    types = {action.type for action in legal}
+
+    assert {ActionType.FOLD, ActionType.CALL, ActionType.RAISE, ActionType.ALL_IN} <= types

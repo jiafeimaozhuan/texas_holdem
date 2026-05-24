@@ -121,7 +121,11 @@ class PokerEngine:
                 )
             )
             min_raise_amount = state.current_bet + state.min_raise - player.street_bet
-            if can_be_called and player.stack >= min_raise_amount:
+            if (
+                can_be_called
+                and not player.acted_this_street
+                and player.stack >= min_raise_amount
+            ):
                 actions.append(
                     LegalAction(
                         ActionType.RAISE,
@@ -140,7 +144,10 @@ class PokerEngine:
                     )
                 )
 
-        if player.stack > 0 and (can_be_called or player.stack <= call_amount):
+        can_commit_extra = call_amount == 0 or not player.acted_this_street
+        if player.stack > 0 and (
+            player.stack <= call_amount or (can_be_called and can_commit_extra)
+        ):
             actions.append(
                 LegalAction(
                     ActionType.ALL_IN,
@@ -197,6 +204,8 @@ class PokerEngine:
                 raise ValueError("cannot raise without facing a bet")
             if not self._has_other_player_who_can_respond(state, seat):
                 raise ValueError("cannot commit uncallable chips")
+            if player.acted_this_street:
+                raise ValueError("betting has not been reopened")
             min_raise_amount = state.current_bet + state.min_raise - player.street_bet
             if amount < min_raise_amount:
                 raise ValueError("raise amount is below the minimum raise")
@@ -210,6 +219,8 @@ class PokerEngine:
                 and not self._has_other_player_who_can_respond(state, seat)
             ):
                 raise ValueError("cannot commit uncallable chips")
+            if all_in_amount > call_amount and player.acted_this_street:
+                raise ValueError("betting has not been reopened")
             committed = self._commit_aggressive(state, player, all_in_amount)
         else:
             raise ValueError(f"unsupported action: {action}")
@@ -307,9 +318,13 @@ class PokerEngine:
             state.current_bet = player.street_bet
             if increase >= old_min_raise:
                 state.min_raise = increase
-            for other in state.players:
-                if other.seat != player.seat and not other.folded and not other.all_in:
-                    other.acted_this_street = False
+                for other in state.players:
+                    if (
+                        other.seat != player.seat
+                        and not other.folded
+                        and not other.all_in
+                    ):
+                        other.acted_this_street = False
         return committed
 
     def _resolve_after_action(self, state: GameState) -> None:
