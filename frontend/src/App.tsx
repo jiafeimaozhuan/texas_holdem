@@ -37,6 +37,16 @@ const defaultTableRequest: CreateTableRequest = {
   seed: null,
 };
 
+const streetOrder: Record<string, number> = {
+  waiting: 0,
+  preflop: 1,
+  flop: 2,
+  turn: 3,
+  river: 4,
+  showdown: 5,
+  complete: 6,
+};
+
 function normalizeRequest(request: CreateTableRequest): CreateTableRequest {
   const seatCount = Math.min(9, Math.max(2, request.bot_count + 1));
   const botCount = seatCount - 1;
@@ -87,6 +97,19 @@ function actorStatus(state: TableStateResponse | null): string {
   return actor ? `${actor.name} to act` : `Seat ${state.current_actor_seat + 1} to act`;
 }
 
+function isStaleTableState(
+  current: TableStateResponse | null,
+  incoming: TableStateResponse,
+): boolean {
+  if (!current || current.table_id !== incoming.table_id) {
+    return false;
+  }
+  if (incoming.hand_number !== current.hand_number) {
+    return incoming.hand_number < current.hand_number;
+  }
+  return (streetOrder[incoming.street] ?? 0) < (streetOrder[current.street] ?? 0);
+}
+
 function App() {
   const [tableConfig, setTableConfig] =
     useState<CreateTableRequest>(defaultTableRequest);
@@ -99,6 +122,9 @@ function App() {
   const [error, setError] = useState<string | null>(null);
 
   const tableStatus = useMemo(() => actorStatus(state), [state]);
+  const canStartHand = Boolean(
+    state && (state.street === "waiting" || state.street === "complete"),
+  );
 
   useEffect(() => {
     if (!state?.table_id) {
@@ -110,7 +136,13 @@ function App() {
     let socket: WebSocket | null = null;
 
     try {
-      socket = connectTableSocket(state.table_id, setState);
+      socket = connectTableSocket(state.table_id, (incomingState) => {
+        setState((currentState) =>
+          isStaleTableState(currentState, incomingState)
+            ? currentState
+            : incomingState,
+        );
+      });
       socket.addEventListener("open", () => setSocketStatus("live"));
       socket.addEventListener("close", () => setSocketStatus("offline"));
       socket.addEventListener("error", () => setSocketStatus("offline"));
@@ -197,7 +229,7 @@ function App() {
           <button
             type="button"
             onClick={handleStartHand}
-            disabled={!state || isStartingHand}
+            disabled={!canStartHand || isStartingHand}
           >
             {isStartingHand ? "Starting..." : "Start Hand"}
           </button>
