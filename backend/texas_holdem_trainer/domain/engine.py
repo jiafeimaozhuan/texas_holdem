@@ -88,12 +88,9 @@ class PokerEngine:
         self._post_blind(state, big_blind_seat, state.big_blind, "big_blind")
         self._deal_hole_cards(state)
 
-        if len(state.players) == 2:
-            first_actor = state.dealer_seat
-        else:
-            first_actor = self._next_actionable_seat(state, big_blind_seat)
-        state.current_actor_seat = first_actor
-        if first_actor is None:
+        state.current_actor_seat = self._first_preflop_actor(state, big_blind_seat)
+        if not self._can_continue_betting(state):
+            state.current_actor_seat = None
             self._resolve_after_action(state)
         return state
 
@@ -312,12 +309,22 @@ class PokerEngine:
                 state.current_actor_seat = None
                 return
 
+            if (
+                not self._can_continue_betting(state)
+                and not self._has_pending_call_decision(state)
+            ):
+                if state.street is Street.RIVER:
+                    self._settle_showdown(state)
+                    return
+                self._advance_street(state)
+                continue
+
             if self._betting_round_complete(state):
                 if state.street is Street.RIVER:
                     self._settle_showdown(state)
                     return
                 self._advance_street(state)
-                if self._has_actionable_player(state):
+                if self._can_continue_betting(state):
                     return
                 continue
 
@@ -357,11 +364,36 @@ class PokerEngine:
             for player in actionable_players
         )
 
-    def _has_actionable_player(self, state: GameState) -> bool:
+    def _can_continue_betting(self, state: GameState) -> bool:
+        return (
+            sum(
+                1
+                for player in state.players
+                if not player.folded and not player.all_in and player.stack > 0
+            )
+            >= 2
+        )
+
+    def _has_pending_call_decision(self, state: GameState) -> bool:
         return any(
-            not player.folded and not player.all_in and player.stack > 0
+            not player.folded
+            and not player.all_in
+            and player.stack > 0
+            and player.street_bet < state.current_bet
             for player in state.players
         )
+
+    def _first_preflop_actor(
+        self,
+        state: GameState,
+        big_blind_seat: int,
+    ) -> int | None:
+        if len(state.players) == 2:
+            candidate = state.players[state.dealer_seat]
+            if not candidate.folded and not candidate.all_in and candidate.stack > 0:
+                return state.dealer_seat
+            return self._next_actionable_seat(state, state.dealer_seat)
+        return self._next_actionable_seat(state, big_blind_seat)
 
     def _first_postflop_actor(self, state: GameState) -> int | None:
         return self._next_actionable_seat(state, state.dealer_seat)

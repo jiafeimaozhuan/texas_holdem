@@ -168,3 +168,57 @@ def test_all_in_showdown_uses_single_simplified_pot() -> None:
         "share": 150,
         "remainder": 0,
     }
+
+
+def test_heads_up_blinds_all_in_from_start_auto_settles_without_dead_actor() -> None:
+    engine = PokerEngine()
+    state = engine.create_table(
+        table_id="t1",
+        player_names=["Button", "Big Blind"],
+        human_seat=0,
+        starting_stack=5,
+        small_blind=5,
+        big_blind=10,
+        seed=19,
+    )
+
+    engine.start_hand(state)
+
+    assert state.street is Street.COMPLETE
+    assert state.current_actor_seat is None
+    assert state.board and len(state.board) == 5
+    assert engine.legal_actions(state, 0) == []
+    assert engine.legal_actions(state, 1) == []
+    assert state.pot == 0
+    assert sum(player.stack for player in state.players) == 10
+
+
+def test_covered_all_in_auto_runs_remaining_streets_without_uncallable_actions() -> None:
+    engine = PokerEngine()
+    state = engine.create_table(
+        table_id="t1",
+        player_names=["Cover", "Short Small", "Short Big"],
+        human_seat=0,
+        starting_stack=100,
+        small_blind=5,
+        big_blind=10,
+        seed=23,
+    )
+    state.players[1].stack = 20
+    state.players[2].stack = 20
+    engine.start_hand(state)
+    state.players[0].hole_cards = [c("Ah"), c("Ad")]
+    state.players[1].hole_cards = [c("Kh"), c("Kd")]
+    state.players[2].hole_cards = [c("Qh"), c("Qd")]
+    state.deck.cards = [c(card) for card in ["2c", "7d", "9h", "Ts", "3c"]]
+
+    engine.apply_action(state, 0, ActionType.RAISE, amount=20)
+    engine.apply_action(state, 1, ActionType.ALL_IN, amount=15)
+    engine.apply_action(state, 2, ActionType.ALL_IN, amount=10)
+
+    assert state.street is Street.COMPLETE
+    assert state.current_actor_seat is None
+    assert state.board == [c("2c"), c("7d"), c("9h"), c("Ts"), c("3c")]
+    assert engine.legal_actions(state, 0) == []
+    assert [player.total_committed for player in state.players] == [20, 20, 20]
+    assert [player.stack for player in state.players] == [140, 0, 0]
