@@ -192,7 +192,7 @@ function App() {
       const nextState = await createTable(request);
       setTableConfig(request);
       setSeatStyles(stylesBySeat(nextState, request));
-      setState((currentState) => mergeTableState(currentState, nextState));
+      setState(nextState);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to create table");
     } finally {
