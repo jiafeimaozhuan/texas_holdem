@@ -39,6 +39,7 @@ def test_table_rest_flow_hides_bot_cards_and_records_ai_reasoning() -> None:
     state_response = client.get(f"/api/table/{table_id}")
     assert state_response.status_code == 200
     state = state_response.json()
+    assert state["ai_provider_status"] == "heuristic/local"
     assert state["street"] in {"preflop", "flop", "turn", "river", "complete"}
     assert state["players"][0]["hole_cards"]
     assert all("hole_cards" not in player for player in state["players"][1:])
@@ -60,6 +61,7 @@ def test_table_rest_flow_hides_bot_cards_and_records_ai_reasoning() -> None:
     assert illegal_response.status_code == 400
     assert "detail" in illegal_response.json()
 
+    final_state = state
     if state["street"] != "complete":
         legal_action = _choose_legal_action(state["legal_actions"])
         action_response = client.post(
@@ -70,12 +72,20 @@ def test_table_rest_flow_hides_bot_cards_and_records_ai_reasoning() -> None:
         advanced = action_response.json()
         assert advanced["current_actor_seat"] in {0, None}
         assert advanced["street"] in {"preflop", "flop", "turn", "river", "complete"}
+        final_state = advanced
+
+    coach_events = final_state["coach_events"]
+    assert coach_events
+    assert all(event["provider"] == "heuristic" for event in coach_events)
+    assert all(event["model"] == "local" for event in coach_events)
 
     history_response = client.get(f"/api/table/{table_id}/history")
     assert history_response.status_code == 200
     history = history_response.json()
     ai_events = [event for event in history["events"] if event["type"] == "ai_decision"]
     assert ai_events
+    assert all(event["provider"] == "heuristic" for event in ai_events)
+    assert all(event["model"] == "local" for event in ai_events)
     assert all(event["reasoning"] for event in ai_events)
     assert all("hole_cards" not in json.dumps(event) for event in ai_events)
 

@@ -3,6 +3,7 @@ import type { BotStyle, CreateTableRequest } from "../types";
 interface SettingsPanelProps {
   config: CreateTableRequest;
   disabled: boolean;
+  providerStatus: string | null;
   onChange: (config: CreateTableRequest) => void;
   onCreateTable: () => Promise<void>;
 }
@@ -33,6 +34,7 @@ function normalizeBotStyles(styles: BotStyle[], botCount: number): BotStyle[] {
 export function SettingsPanel({
   config,
   disabled,
+  providerStatus,
   onChange,
   onCreateTable,
 }: SettingsPanelProps) {
@@ -68,7 +70,7 @@ export function SettingsPanel({
       <div className="panel-heading">
         <div>
           <h2>Settings</h2>
-          <span>Provider: heuristic/local</span>
+          <span>Provider: {providerStatus ?? "not configured"}</span>
         </div>
       </div>
 

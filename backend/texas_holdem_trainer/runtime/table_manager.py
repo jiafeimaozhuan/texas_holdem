@@ -220,6 +220,7 @@ class TableManager:
             legal_actions=[_legal_action_view(action) for action in legal_actions],
             coach_events=list(session.coach_events),
             history_events=self._history_events(session),
+            ai_provider_status=self._ai_provider_status(session.profiles),
         )
 
     def _history_events(self, session: TableSession) -> list[HistoryEventView]:
@@ -243,6 +244,8 @@ class TableManager:
             seat=seat,
             name=state.players[seat].name,
             style=profile.style,
+            provider=profile.provider,
+            model=profile.model or "local",
             action=decision.action,
             amount=decision.amount,
             confidence=decision.confidence,
@@ -284,6 +287,20 @@ class TableManager:
                 continue
             profiles[player.seat] = BotProfile.for_style(player.name, next(style_cycle))
         return profiles
+
+    def _ai_provider_status(self, profiles: dict[int, BotProfile]) -> str:
+        if not profiles:
+            return "none"
+
+        labels = sorted(
+            {
+                f"{profile.provider}/{profile.model or 'local'}"
+                for profile in profiles.values()
+            }
+        )
+        if len(labels) == 1:
+            return labels[0]
+        return f"mixed: {', '.join(labels)}"
 
     def _human_seat(self, state: GameState) -> int:
         for player in state.players:

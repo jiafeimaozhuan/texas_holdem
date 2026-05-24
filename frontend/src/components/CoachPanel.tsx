@@ -11,6 +11,10 @@ function formatStyle(style: string): string {
     .join(" ");
 }
 
+function formatProvider(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
 function formatAction(event: CoachEventView): string {
   const action = event.action === "all_in" ? "all-in" : event.action;
   if (event.amount > 0) {
@@ -42,6 +46,14 @@ export function CoachPanel({ events }: CoachPanelProps) {
             <div>
               <dt>Style</dt>
               <dd>{formatStyle(latest.style)}</dd>
+            </div>
+            <div>
+              <dt>Provider</dt>
+              <dd>{formatProvider(latest.provider)}</dd>
+            </div>
+            <div>
+              <dt>Model</dt>
+              <dd>{latest.model}</dd>
             </div>
             <div>
               <dt>Confidence</dt>

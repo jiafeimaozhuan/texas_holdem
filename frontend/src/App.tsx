@@ -230,6 +230,7 @@ function App() {
           <SettingsPanel
             config={tableConfig}
             disabled={isCreating}
+            providerStatus={state?.ai_provider_status ?? null}
             onChange={setTableConfig}
             onCreateTable={handleCreateTable}
           />

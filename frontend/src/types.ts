@@ -59,6 +59,8 @@ export interface CoachEventView {
   seat: number;
   name: string;
   style: BotStyle;
+  provider: string;
+  model: string;
   action: ActionType;
   amount: number;
   confidence: number;
@@ -86,6 +88,8 @@ export interface HistoryEventView {
   ranks?: Record<number, Record<string, unknown>> | null;
   name?: string | null;
   style?: BotStyle | null;
+  provider?: string | null;
+  model?: string | null;
   confidence?: number | null;
   reasoning?: string | null;
   fallback_used?: boolean | null;
@@ -110,6 +114,7 @@ export interface TableStateResponse {
   legal_actions: LegalActionView[];
   coach_events: CoachEventView[];
   history_events: HistoryEventView[];
+  ai_provider_status: string;
 }
 
 export interface StartHandResponse {

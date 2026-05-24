@@ -60,6 +60,8 @@ class CoachEventView(BaseModel):
     seat: int
     name: str
     style: BotStyle
+    provider: str
+    model: str
     action: ActionType
     amount: int
     confidence: float
@@ -89,6 +91,8 @@ class HistoryEventView(BaseModel):
     ranks: dict[int, dict[str, Any]] | None = None
     name: str | None = None
     style: BotStyle | None = None
+    provider: str | None = None
+    model: str | None = None
     confidence: float | None = None
     reasoning: str | None = None
     fallback_used: bool | None = None
@@ -112,6 +116,7 @@ class TableStateResponse(BaseModel):
     legal_actions: list[LegalActionView]
     coach_events: list[CoachEventView]
     history_events: list[HistoryEventView]
+    ai_provider_status: str
 
 
 class StartHandResponse(BaseModel):
