@@ -11,6 +11,7 @@ import { CoachPanel } from "./components/CoachPanel";
 import { HandHistoryPanel } from "./components/HandHistoryPanel";
 import { PokerTable } from "./components/PokerTable";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { seatLabel, socketStatusLabel, streetLabel } from "./labels";
 import type {
   ActionType,
   BotStyle,
@@ -27,7 +28,7 @@ const defaultBotStyles: BotStyle[] = [
 ];
 
 const defaultTableRequest: CreateTableRequest = {
-  human_name: "Hero",
+  human_name: "玩家",
   bot_count: 3,
   bot_styles: defaultBotStyles.slice(0, 3),
   starting_stack: 1000,
@@ -88,13 +89,13 @@ function stylesBySeat(
 
 function actorStatus(state: TableStateResponse | null): string {
   if (!state) {
-    return "No table";
+    return "尚未创建牌桌";
   }
   if (state.current_actor_seat == null) {
-    return "Waiting for hand";
+    return "等待开始新一手";
   }
   const actor = state.players.find((player) => player.seat === state.current_actor_seat);
-  return actor ? `${actor.name} to act` : `Seat ${state.current_actor_seat + 1} to act`;
+  return actor ? `轮到 ${actor.name} 行动` : `轮到${seatLabel(state.current_actor_seat)}行动`;
 }
 
 function isStaleTableState(
@@ -194,7 +195,7 @@ function App() {
       setSeatStyles(stylesBySeat(nextState, request));
       setState(nextState);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to create table");
+      setError(caught instanceof Error ? caught.message : "无法创建牌桌");
     } finally {
       setIsCreating(false);
     }
@@ -222,7 +223,7 @@ function App() {
       const nextState = await startHand(tableState.table_id);
       setState((currentState) => mergeTableState(currentState, nextState));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to start hand");
+      setError(caught instanceof Error ? caught.message : "无法开始手牌");
     } finally {
       setIsStartingHand(false);
     }
@@ -240,7 +241,7 @@ function App() {
       const nextState = await submitAction(state.table_id, { action, amount });
       setState((currentState) => mergeTableState(currentState, nextState));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to submit action");
+      setError(caught instanceof Error ? caught.message : "无法提交行动");
     } finally {
       setIsSubmitting(false);
     }
@@ -250,38 +251,40 @@ function App() {
     <main className="app-shell">
       <header className="app-header">
         <div>
-          <h1>Texas Hold&apos;em Trainer</h1>
+          <h1>德州扑克训练器</h1>
           <p>{tableStatus}</p>
         </div>
         <div className="header-actions">
-          <span className={`socket-pill socket-pill--${socketStatus}`}>{socketStatus}</span>
+          <span className={`socket-pill socket-pill--${socketStatus}`}>
+            {socketStatusLabel(socketStatus)}
+          </span>
           <button
             type="button"
             onClick={handleStartHand}
             disabled={!canStartHand || isCreating || isStartingHand || isSubmitting}
           >
-            {isStartingHand ? "Starting..." : "Start Hand"}
+            {isStartingHand ? "开始中..." : "开始新一手"}
           </button>
         </div>
       </header>
 
       {error ? <div className="error">{error}</div> : null}
 
-      <section className="table-summary" aria-label="Table status">
+      <section className="table-summary" aria-label="牌桌状态">
         <div>
-          <span>Table</span>
+          <span>牌桌</span>
           <strong>{state?.table_id ?? "-"}</strong>
         </div>
         <div>
-          <span>Hand</span>
+          <span>手牌</span>
           <strong>{state?.hand_number ?? "-"}</strong>
         </div>
         <div>
-          <span>Street</span>
-          <strong>{state?.street ?? "-"}</strong>
+          <span>阶段</span>
+          <strong>{state ? streetLabel(state.street) : "-"}</strong>
         </div>
         <div>
-          <span>Pot</span>
+          <span>底池</span>
           <strong>{state?.pot ?? "-"}</strong>
         </div>
       </section>
@@ -296,7 +299,7 @@ function App() {
           />
         </div>
 
-        <aside className="side-column" aria-label="Trainer panels">
+        <aside className="side-column" aria-label="训练面板">
           <CoachPanel events={state?.coach_events ?? []} />
           <SettingsPanel
             config={tableConfig}

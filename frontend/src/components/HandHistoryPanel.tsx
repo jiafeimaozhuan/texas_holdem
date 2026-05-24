@@ -1,3 +1,4 @@
+import { actionLabel, blindLabel, seatLabel, streetLabel, styleLabel } from "../labels";
 import type { HistoryEventView } from "../types";
 
 interface HandHistoryPanelProps {
@@ -5,44 +6,41 @@ interface HandHistoryPanelProps {
 }
 
 function formatAction(action?: string | null): string {
-  if (!action) {
-    return "Action";
-  }
-  return action === "all_in" ? "all-in" : action;
+  return actionLabel(action);
 }
 
 function formatSeat(seat?: number | null, name?: string | null): string {
   if (name) {
     return name;
   }
-  return typeof seat === "number" ? `Seat ${seat + 1}` : "Table";
+  return seatLabel(seat);
 }
 
 function formatWinners(winners?: number[] | null): string {
   if (!winners?.length) {
-    return "No winners";
+    return "无赢家";
   }
-  return winners.map((seat) => `Seat ${seat + 1}`).join(", ");
+  return winners.map((seat) => seatLabel(seat)).join(", ");
 }
 
 function eventTitle(event: HistoryEventView): string {
   switch (event.type) {
     case "hand_started":
-      return `Hand ${event.hand_number ?? ""} started`;
+      return `第 ${event.hand_number ?? ""} 手牌开始`;
     case "blind":
-      return `${formatSeat(event.seat)} posted ${event.blind === "small_blind" ? "small blind" : "big blind"}`;
+      return `${formatSeat(event.seat)} 下注${blindLabel(event.blind)}`;
     case "deal":
-      return event.cards === "hole" ? "Hole cards dealt" : "Cards dealt";
+      return event.cards === "hole" ? "手牌已发" : "牌已发";
     case "action":
       return `${formatSeat(event.seat)} ${formatAction(event.action)}`;
     case "street":
-      return `${event.street ?? "Street"} dealt`;
+      return `${streetLabel(event.street)}已发`;
     case "showdown":
-      return `Showdown: ${formatWinners(event.winners)}`;
+      return `摊牌：${formatWinners(event.winners)}`;
     case "settlement":
-      return `${formatWinners(event.winners)} won ${event.pot ?? 0}`;
+      return `${formatWinners(event.winners)} 赢得 ${event.pot ?? 0}`;
     case "ai_decision":
-      return `${formatSeat(event.seat, event.name)} chose ${formatAction(event.action)}`;
+      return `${formatSeat(event.seat, event.name)} 选择${formatAction(event.action)}`;
     default:
       return event.type.split("_").join(" ");
   }
@@ -51,36 +49,36 @@ function eventTitle(event: HistoryEventView): string {
 function eventDetail(event: HistoryEventView): string {
   switch (event.type) {
     case "hand_started":
-      return `Dealer seat ${(event.dealer_seat ?? 0) + 1}`;
+      return `庄位 ${seatLabel(event.dealer_seat)}`;
     case "blind":
-      return `Amount ${event.amount ?? 0}`;
+      return `金额 ${event.amount ?? 0}`;
     case "action":
-      return `${event.street ?? "street"} / amount ${event.amount ?? 0}`;
+      return `${streetLabel(event.street)} / 金额 ${event.amount ?? 0}`;
     case "street":
-      return `Board cards ${event.board_count ?? 0}`;
+      return `公共牌 ${event.board_count ?? 0} 张`;
     case "showdown":
-      return event.ranks ? "Ranks evaluated" : "No rank detail";
+      return event.ranks ? "牌力已评估" : "无牌力详情";
     case "settlement": {
-      const chips = event.reason === "fold" ? "fold winner" : `share ${event.share ?? 0}`;
-      return event.remainder ? `${chips}, remainder ${event.remainder}` : chips;
+      const chips = event.reason === "fold" ? "其他玩家弃牌获胜" : `分得 ${event.share ?? 0}`;
+      return event.remainder ? `${chips}，余数 ${event.remainder}` : chips;
     }
     case "ai_decision": {
       const confidence =
         typeof event.confidence === "number" ? `${Math.round(event.confidence * 100)}%` : "n/a";
-      return `${event.style ?? "style pending"} / ${confidence}`;
+      return `${styleLabel(event.style)} / ${confidence}`;
     }
     default:
-      return event.street ?? "Logged";
+      return event.street ? streetLabel(event.street) : "已记录";
   }
 }
 
 export function HandHistoryPanel({ events }: HandHistoryPanelProps) {
   return (
-    <section className="panel history-panel" aria-label="Hand history">
+    <section className="panel history-panel" aria-label="手牌历史">
       <div className="panel-heading">
         <div>
-          <h2>History</h2>
-          <span>{events.length} events</span>
+          <h2>历史</h2>
+          <span>{events.length} 条事件</span>
         </div>
       </div>
 
@@ -97,7 +95,7 @@ export function HandHistoryPanel({ events }: HandHistoryPanelProps) {
           ))}
         </ol>
       ) : (
-        <span className="muted-state">No hand history</span>
+        <span className="muted-state">暂无手牌历史</span>
       )}
     </section>
   );

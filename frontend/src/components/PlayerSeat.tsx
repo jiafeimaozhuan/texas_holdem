@@ -1,3 +1,4 @@
+import { blindLabel, seatLabel, styleLabel as formatStyleLabel } from "../labels";
 import type { PlayerView } from "../types";
 import { PlayingCard } from "./CommunityCards";
 
@@ -7,29 +8,6 @@ interface PlayerSeatProps {
   blind?: string;
   isActor: boolean;
   styleLabel?: string;
-}
-
-function formatStyle(styleLabel?: string): string {
-  if (!styleLabel) {
-    return "Style pending";
-  }
-  if (styleLabel === "human") {
-    return "Human";
-  }
-  return styleLabel
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function formatBlind(blind: string): string {
-  if (blind === "small_blind") {
-    return "SB";
-  }
-  if (blind === "big_blind") {
-    return "BB";
-  }
-  return blind.toUpperCase();
 }
 
 export function PlayerSeat({
@@ -51,37 +29,37 @@ export function PlayerSeat({
     .join(" ");
 
   return (
-    <article className={seatClasses} aria-label={`${player.name}, seat ${player.seat}`}>
+    <article className={seatClasses} aria-label={`${player.name}，${seatLabel(player.seat)}`}>
       <div className="seat-topline">
-        <span className="seat-number">Seat {player.seat + 1}</span>
+        <span className="seat-number">{seatLabel(player.seat)}</span>
         <span className="seat-badges">
-          {isDealer ? <span className="badge badge--dealer">D</span> : null}
-          {blind ? <span className="badge badge--blind">{formatBlind(blind)}</span> : null}
+          {isDealer ? <span className="badge badge--dealer">庄</span> : null}
+          {blind ? <span className="badge badge--blind">{blindLabel(blind)}</span> : null}
         </span>
       </div>
       <div className="seat-name-row">
         <strong>{player.name}</strong>
-        {isActor ? <span className="turn-dot" aria-label="Current actor" /> : null}
+        {isActor ? <span className="turn-dot" aria-label="当前行动玩家" /> : null}
       </div>
-      <span className="seat-style">{formatStyle(styleLabel)}</span>
-      <div className="hole-cards" aria-label={hiddenCards ? "Hidden hole cards" : "Hole cards"}>
+      <span className="seat-style">{formatStyleLabel(styleLabel)}</span>
+      <div className="hole-cards" aria-label={hiddenCards ? "隐藏手牌" : "手牌"}>
         <PlayingCard card={player.hole_cards?.[0]} hidden={hiddenCards} />
         <PlayingCard card={player.hole_cards?.[1]} hidden={hiddenCards} />
       </div>
       <dl className="seat-metrics">
         <div>
-          <dt>Stack</dt>
+          <dt>筹码</dt>
           <dd>{player.stack}</dd>
         </div>
         <div>
-          <dt>Bet</dt>
+          <dt>下注</dt>
           <dd>{player.street_bet}</dd>
         </div>
       </dl>
       <div className="seat-state">
-        {player.folded ? <span>Folded</span> : null}
-        {player.all_in ? <span>All-in</span> : null}
-        {!player.folded && !player.all_in ? <span>In hand</span> : null}
+        {player.folded ? <span>已弃牌</span> : null}
+        {player.all_in ? <span>全下</span> : null}
+        {!player.folded && !player.all_in ? <span>牌局中</span> : null}
       </div>
     </article>
   );

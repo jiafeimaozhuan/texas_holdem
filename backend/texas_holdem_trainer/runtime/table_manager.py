@@ -279,7 +279,7 @@ class TableManager:
                 names.append(request.human_name)
             else:
                 bot_number = len(names) if seat > request.human_seat else len(names) + 1
-                names.append(f"Bot {bot_number}")
+                names.append(f"电脑 {bot_number}")
         return names
 
     def _profiles_for_state(

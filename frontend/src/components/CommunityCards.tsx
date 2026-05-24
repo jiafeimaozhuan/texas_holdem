@@ -17,12 +17,12 @@ export function PlayingCard({
   if (hidden || !card) {
     if (!hidden) {
       return (
-        <span className="playing-card playing-card--empty" aria-label="Empty card slot" />
+        <span className="playing-card playing-card--empty" aria-label="空牌位" />
       );
     }
 
     return (
-      <span className="playing-card playing-card--back" aria-label="Hidden card">
+      <span className="playing-card playing-card--back" aria-label="隐藏牌">
         ?
       </span>
     );
@@ -57,12 +57,12 @@ function suitSymbol(suit: string): string {
 }
 
 function boardLabel(cards: CardView[]): string {
-  return cards.length > 0 ? cards.map((card) => card.code).join(" ") : "No board";
+  return cards.length > 0 ? cards.map((card) => card.code).join(" ") : "无公共牌";
 }
 
 export function CommunityCards({ cards }: CommunityCardsProps) {
   return (
-    <div className="community-cards" aria-label={`Community cards: ${boardLabel(cards)}`}>
+    <div className="community-cards" aria-label={`公共牌：${boardLabel(cards)}`}>
       {Array.from({ length: 5 }, (_, index) => (
         <PlayingCard key={index} card={cards[index]} />
       ))}

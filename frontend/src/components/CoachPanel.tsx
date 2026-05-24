@@ -1,37 +1,32 @@
+import {
+  actionWithAmount,
+  fallbackReasonLabel,
+  modelLabel,
+  providerLabel,
+  streetLabel,
+  styleLabel,
+} from "../labels";
 import type { CoachEventView } from "../types";
 
 interface CoachPanelProps {
   events: CoachEventView[];
 }
 
-function formatStyle(style: string): string {
-  return style
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function formatProvider(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
 function formatAction(event: CoachEventView): string {
-  const action = event.action === "all_in" ? "all-in" : event.action;
-  if (event.amount > 0) {
-    return `${action} ${event.amount}`;
-  }
-  return action;
+  return actionWithAmount(event.action, event.amount);
 }
 
 export function CoachPanel({ events }: CoachPanelProps) {
   const latest = events.length > 0 ? events[events.length - 1] : undefined;
 
   return (
-    <section className="panel coach-panel" aria-label="Coach panel">
+    <section className="panel coach-panel" aria-label="教练面板">
       <div className="panel-heading">
         <div>
-          <h2>Coach</h2>
-          <span>{latest ? `Hand ${latest.hand_number} / ${latest.street}` : "Idle"}</span>
+          <h2>教练</h2>
+          <span>
+            {latest ? `第 ${latest.hand_number} 手 / ${streetLabel(latest.street)}` : "空闲"}
+          </span>
         </div>
       </div>
 
@@ -44,36 +39,36 @@ export function CoachPanel({ events }: CoachPanelProps) {
 
           <dl className="coach-metrics">
             <div>
-              <dt>Style</dt>
-              <dd>{formatStyle(latest.style)}</dd>
+              <dt>风格</dt>
+              <dd>{styleLabel(latest.style)}</dd>
             </div>
             <div>
-              <dt>Provider</dt>
-              <dd>{formatProvider(latest.provider)}</dd>
+              <dt>决策源</dt>
+              <dd>{providerLabel(latest.provider)}</dd>
             </div>
             <div>
-              <dt>Model</dt>
-              <dd>{latest.model}</dd>
+              <dt>模型</dt>
+              <dd>{modelLabel(latest.model)}</dd>
             </div>
             <div>
-              <dt>Confidence</dt>
+              <dt>置信度</dt>
               <dd>{Math.round(latest.confidence * 100)}%</dd>
             </div>
             <div>
-              <dt>Status</dt>
-              <dd>{latest.fallback_used ? "Fallback" : "Primary"}</dd>
+              <dt>状态</dt>
+              <dd>{latest.fallback_used ? "已回退" : "主决策"}</dd>
             </div>
           </dl>
 
           <p className="coach-reasoning">{latest.reasoning}</p>
           {latest.fallback_used ? (
             <p className="fallback-reason">
-              {latest.fallback_reason ?? "Fallback reason unavailable"}
+              {fallbackReasonLabel(latest.fallback_reason)}
             </p>
           ) : null}
         </div>
       ) : (
-        <span className="muted-state">No coach decisions</span>
+        <span className="muted-state">暂无电脑决策</span>
       )}
     </section>
   );

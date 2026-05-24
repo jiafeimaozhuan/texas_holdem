@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { actionLabel, seatLabel } from "../labels";
 import type { ActionType, LegalActionView, TableStateResponse } from "../types";
 
 interface ActionControlsProps {
@@ -9,13 +10,6 @@ interface ActionControlsProps {
 
 const rangedActions = new Set<ActionType>(["bet", "raise", "all_in"]);
 const emptyLegalActions: LegalActionView[] = [];
-
-function actionLabel(action: ActionType): string {
-  if (action === "all_in") {
-    return "All-in";
-  }
-  return action.charAt(0).toUpperCase() + action.slice(1);
-}
 
 function defaultAmount(action: LegalActionView): number {
   if (action.action === "fold" || action.action === "check") {
@@ -73,27 +67,27 @@ export function ActionControls({ state, isSubmitting, onSubmit }: ActionControls
 
   const status = useMemo(() => {
     if (!state) {
-      return "No table";
+      return "尚未创建牌桌";
     }
     if (state.current_actor_seat == null) {
-      return "Hand idle";
+      return "手牌空闲";
     }
     const actor = state.players.find((player) => player.seat === state.current_actor_seat);
-    return actor ? `${actor.name} to act` : `Seat ${state.current_actor_seat + 1} to act`;
+    return actor ? `轮到 ${actor.name} 行动` : `轮到${seatLabel(state.current_actor_seat)}行动`;
   }, [state]);
 
   return (
-    <section className="panel action-panel" aria-label="Action controls">
+    <section className="panel action-panel" aria-label="行动控制">
       <div className="panel-heading">
         <div>
-          <h2>Actions</h2>
+          <h2>行动</h2>
           <span>{status}</span>
         </div>
       </div>
 
       <div className="action-list">
         {legalActions.length === 0 ? (
-          <span className="muted-state">No legal actions</span>
+          <span className="muted-state">暂无可用行动</span>
         ) : (
           legalActions.map((legalAction) => {
             const hasAmountControl = rangedActions.has(legalAction.action);
@@ -121,7 +115,7 @@ export function ActionControls({ state, isSubmitting, onSubmit }: ActionControls
                 </button>
                 {hasAmountControl ? (
                   <label className="amount-control">
-                    <span>Amount</span>
+                    <span>金额</span>
                     <input
                       type="number"
                       min={legalAction.min_amount}

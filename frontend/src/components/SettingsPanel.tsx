@@ -1,3 +1,4 @@
+import { providerStatusLabel, styleLabel } from "../labels";
 import type { BotStyle, CreateTableRequest } from "../types";
 
 interface SettingsPanelProps {
@@ -15,13 +16,6 @@ const botStyles: BotStyle[] = [
   "bluff_heavy",
   "gto_leaning",
 ];
-
-function styleLabel(style: BotStyle): string {
-  return style
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
 
 function normalizeBotStyles(styles: BotStyle[], botCount: number): BotStyle[] {
   const next = styles.slice(0, botCount);
@@ -66,17 +60,17 @@ export function SettingsPanel({
   }
 
   return (
-    <section className="panel settings-panel" aria-label="Table settings">
+    <section className="panel settings-panel" aria-label="牌桌设置">
       <div className="panel-heading">
         <div>
-          <h2>Settings</h2>
-          <span>Provider: {providerStatus ?? "not configured"}</span>
+          <h2>设置</h2>
+          <span>决策源：{providerStatusLabel(providerStatus)}</span>
         </div>
       </div>
 
       <div className="settings-grid">
         <label>
-          <span>Seats</span>
+          <span>座位数</span>
           <input
             type="number"
             min={2}
@@ -87,7 +81,7 @@ export function SettingsPanel({
           />
         </label>
         <label>
-          <span>Starting stack</span>
+          <span>起始筹码</span>
           <input
             type="number"
             min={1}
@@ -97,7 +91,7 @@ export function SettingsPanel({
           />
         </label>
         <label>
-          <span>Small blind</span>
+          <span>小盲</span>
           <input
             type="number"
             min={1}
@@ -107,7 +101,7 @@ export function SettingsPanel({
           />
         </label>
         <label>
-          <span>Big blind</span>
+          <span>大盲</span>
           <input
             type="number"
             min={1}
@@ -118,10 +112,10 @@ export function SettingsPanel({
         </label>
       </div>
 
-      <div className="bot-style-list" aria-label="Bot style labels">
+      <div className="bot-style-list" aria-label="电脑玩家风格标签">
         {normalizedStyles.map((style, index) => (
           <label key={index}>
-            <span>Bot {index + 1}</span>
+            <span>电脑 {index + 1}</span>
             <select
               value={style}
               disabled={disabled}
@@ -138,7 +132,7 @@ export function SettingsPanel({
       </div>
 
       <button type="button" className="wide-button" onClick={onCreateTable} disabled={disabled}>
-        {disabled ? "Creating..." : "Create Table"}
+        {disabled ? "创建中..." : "创建牌桌"}
       </button>
     </section>
   );

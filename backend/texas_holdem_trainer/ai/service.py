@@ -229,11 +229,11 @@ class AIService:
         *,
         fallback_used: bool,
     ) -> str:
-        style = profile.style.value.replace("_", " ")
+        style = _describe_style(profile.style.value)
         action = _describe_action(result)
         context = _describe_legal_context(legal_actions)
-        prefix = "Fallback was used; " if fallback_used else ""
-        return f"{prefix}{style} profile chose to {action} {context}."
+        prefix = "主决策不可用，已回退；" if fallback_used else ""
+        return f"{prefix}{style}风格选择{action}，{context}。"
 
 
 def _card_to_string(card: Card) -> str:
@@ -257,27 +257,50 @@ def _card_to_string(card: Card) -> str:
 
 def _describe_action(result: DecisionResult) -> str:
     if result.action is ActionType.FOLD:
-        return "fold"
+        return "弃牌"
     if result.action is ActionType.CHECK:
-        return "check"
+        return "过牌"
     if result.action is ActionType.CALL:
-        return f"call {result.amount}"
+        return f"跟注 {result.amount}"
     if result.action is ActionType.BET:
-        return f"bet {result.amount}"
+        return f"下注 {result.amount}"
     if result.action is ActionType.RAISE:
-        return f"raise to {result.amount}"
+        return f"加注到 {result.amount}"
     if result.action is ActionType.ALL_IN:
-        return f"move all-in for {result.amount}"
+        return f"全下 {result.amount}"
     return result.action.value
 
 
 def _describe_legal_context(legal_actions: Sequence[LegalAction]) -> str:
-    legal_action_names = ", ".join(action.type.value for action in legal_actions)
+    legal_action_names = "、".join(_action_type_label(action.type) for action in legal_actions)
     if any(action.type is ActionType.CALL for action in legal_actions):
-        return f"while facing a bet with legal options: {legal_action_names}"
+        return f"当前面对下注，可选行动为：{legal_action_names}"
     if any(action.type is ActionType.CHECK for action in legal_actions):
-        return f"with no bet faced and legal options: {legal_action_names}"
-    return f"from legal options: {legal_action_names}"
+        return f"当前无人下注，可选行动为：{legal_action_names}"
+    return f"可选行动为：{legal_action_names}"
+
+
+def _action_type_label(action: ActionType) -> str:
+    labels = {
+        ActionType.FOLD: "弃牌",
+        ActionType.CHECK: "过牌",
+        ActionType.CALL: "跟注",
+        ActionType.BET: "下注",
+        ActionType.RAISE: "加注",
+        ActionType.ALL_IN: "全下",
+    }
+    return labels[action]
+
+
+def _describe_style(style: str) -> str:
+    labels = {
+        "tight_aggressive": "紧凶",
+        "loose_aggressive": "松凶",
+        "conservative": "保守",
+        "bluff_heavy": "诈唬型",
+        "gto_leaning": "GTO 倾向",
+    }
+    return labels.get(style, style)
 
 
 def _sanitize_history_entry(entry: Mapping[str, Any]) -> dict[str, Any]:

@@ -276,11 +276,11 @@ async def test_ai_service_replaces_semantic_private_card_primary_reasoning() -> 
         legal_actions,
     )
 
-    public_reasoning = result.reasoning.lower()
+    public_reasoning = result.reasoning
     assert result.fallback_used is False
     assert result.action is ActionType.CALL
     assert result.reasoning
-    assert "call" in public_reasoning or "tight_aggressive" in public_reasoning
+    assert "跟注" in public_reasoning or "紧凶" in public_reasoning
     assert "pocket kings" not in public_reasoning
     assert "top set" not in public_reasoning
     assert "king of clubs and diamond" not in public_reasoning
@@ -327,13 +327,13 @@ async def test_ai_service_replaces_semantic_private_card_fallback_reasoning() ->
         legal_actions,
     )
 
-    public_reasoning = result.reasoning.lower()
+    public_reasoning = result.reasoning
     assert result.fallback_used is True
     assert result.fallback_reason == "illegal_primary_action"
     assert result.action is ActionType.CALL
     assert result.reasoning
-    assert "call" in public_reasoning or "tight_aggressive" in public_reasoning
-    assert "fallback" in public_reasoning
+    assert "跟注" in public_reasoning or "紧凶" in public_reasoning
+    assert "回退" in public_reasoning
     assert "pocket kings" not in public_reasoning
     assert "top set" not in public_reasoning
     assert "king of clubs and diamond" not in public_reasoning
@@ -365,9 +365,9 @@ async def test_ai_service_public_reasoning_mentions_action_or_style() -> None:
         legal_actions,
     )
 
-    public_reasoning = result.reasoning.lower()
+    public_reasoning = result.reasoning
     assert result.reasoning
-    assert "call" in public_reasoning or "conservative" in public_reasoning
+    assert "跟注" in public_reasoning or "保守" in public_reasoning
     assert result.reasoning != "ok"
 
 
@@ -415,7 +415,7 @@ async def test_ai_service_replaces_primary_reasoning_with_public_template() -> N
     assert "Kd" not in result.reasoning
     assert "[private cards]" not in result.reasoning
     assert "can continue" not in result.reasoning
-    assert "call" in result.reasoning.lower()
+    assert "跟注" in result.reasoning
 
 
 @pytest.mark.asyncio
@@ -464,8 +464,8 @@ async def test_ai_service_replaces_fallback_reasoning_with_public_template() -> 
     assert "Kd" not in result.reasoning
     assert "[private cards]" not in result.reasoning
     assert "strong enough to call" not in result.reasoning
-    assert "fallback" in result.reasoning.lower()
-    assert "call" in result.reasoning.lower()
+    assert "回退" in result.reasoning
+    assert "跟注" in result.reasoning
 
 
 def test_llm_provider_transport_type_accepts_only_async_transport() -> None:

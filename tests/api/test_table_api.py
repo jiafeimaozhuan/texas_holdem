@@ -3,12 +3,20 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from texas_holdem_trainer.ai.providers import HeuristicProvider
+from texas_holdem_trainer.ai.service import AIService
 from texas_holdem_trainer.api.app import app, table_manager
 
 
 @pytest.fixture(autouse=True)
 def reset_table_manager() -> None:
     table_manager.reset()
+    heuristic = HeuristicProvider()
+    table_manager.ai_service = AIService(
+        primary_provider=heuristic,
+        fallback_provider=heuristic,
+    )
+    table_manager.bot_provider_templates = {}
 
 
 def test_table_rest_flow_hides_bot_cards_and_records_ai_reasoning() -> None:
