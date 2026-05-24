@@ -9,6 +9,23 @@ def action_by_type(state, action_type: ActionType):
     return next(action for action in actions if action.type is action_type)
 
 
+def pending_call_all_in_state():
+    engine = PokerEngine()
+    state = engine.create_table(
+        table_id="t1",
+        player_names=["Short Button", "Big Blind"],
+        human_seat=0,
+        starting_stack=100,
+        small_blind=5,
+        big_blind=10,
+        seed=11,
+    )
+    state.players[0].stack = 15
+    engine.start_hand(state)
+    engine.apply_action(state, 0, ActionType.ALL_IN, amount=10)
+    return engine, state
+
+
 def test_legal_actions_when_facing_bet_include_call_raise_and_all_in() -> None:
     engine = PokerEngine()
     state = engine.create_table(
@@ -91,3 +108,28 @@ def test_apply_action_rejects_out_of_turn_seat() -> None:
 
     with pytest.raises(ValueError, match="not the current actor"):
         engine.apply_action(state, 1, ActionType.FOLD)
+
+
+def test_pending_call_against_all_in_only_exposes_fold_and_call() -> None:
+    engine, state = pending_call_all_in_state()
+
+    legal = engine.legal_actions(state, 1)
+    types = {action.type for action in legal}
+
+    assert types == {ActionType.FOLD, ActionType.CALL}
+    call = next(action for action in legal if action.type is ActionType.CALL)
+    assert call.min_amount == call.max_amount == 5
+
+
+@pytest.mark.parametrize("action", [ActionType.RAISE, ActionType.ALL_IN])
+def test_pending_call_against_all_in_rejects_uncallable_extra_chips(
+    action: ActionType,
+) -> None:
+    engine, state = pending_call_all_in_state()
+    amount = state.players[1].stack if action is ActionType.ALL_IN else 20
+
+    with pytest.raises(ValueError, match="uncallable"):
+        engine.apply_action(state, 1, action, amount=amount)
+
+    assert state.players[1].stack == 90
+    assert state.players[1].street_bet == 10

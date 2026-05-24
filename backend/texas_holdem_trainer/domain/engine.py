@@ -108,6 +108,7 @@ class PokerEngine:
             return []
 
         call_amount = max(0, state.current_bet - player.street_bet)
+        can_be_called = self._has_other_player_who_can_respond(state, seat)
         actions: list[LegalAction] = []
 
         if call_amount > 0:
@@ -120,7 +121,7 @@ class PokerEngine:
                 )
             )
             min_raise_amount = state.current_bet + state.min_raise - player.street_bet
-            if player.stack >= min_raise_amount:
+            if can_be_called and player.stack >= min_raise_amount:
                 actions.append(
                     LegalAction(
                         ActionType.RAISE,
@@ -139,7 +140,7 @@ class PokerEngine:
                     )
                 )
 
-        if player.stack > 0:
+        if player.stack > 0 and (can_be_called or player.stack <= call_amount):
             actions.append(
                 LegalAction(
                     ActionType.ALL_IN,
@@ -186,12 +187,16 @@ class PokerEngine:
         elif action is ActionType.BET:
             if call_amount != 0:
                 raise ValueError("cannot bet while facing a bet")
+            if not self._has_other_player_who_can_respond(state, seat):
+                raise ValueError("cannot commit uncallable chips")
             if amount < state.min_raise:
                 raise ValueError("bet amount is below the minimum bet")
             committed = self._commit_aggressive(state, player, amount)
         elif action is ActionType.RAISE:
             if call_amount == 0:
                 raise ValueError("cannot raise without facing a bet")
+            if not self._has_other_player_who_can_respond(state, seat):
+                raise ValueError("cannot commit uncallable chips")
             min_raise_amount = state.current_bet + state.min_raise - player.street_bet
             if amount < min_raise_amount and amount != player.stack:
                 raise ValueError("raise amount is below the minimum raise")
@@ -200,6 +205,11 @@ class PokerEngine:
             all_in_amount = player.stack if amount == 0 else amount
             if all_in_amount != player.stack:
                 raise ValueError("all-in amount must equal the player's stack")
+            if (
+                all_in_amount > call_amount
+                and not self._has_other_player_who_can_respond(state, seat)
+            ):
+                raise ValueError("cannot commit uncallable chips")
             committed = self._commit_aggressive(state, player, all_in_amount)
         else:
             raise ValueError(f"unsupported action: {action}")
@@ -380,6 +390,15 @@ class PokerEngine:
             and not player.all_in
             and player.stack > 0
             and player.street_bet < state.current_bet
+            for player in state.players
+        )
+
+    def _has_other_player_who_can_respond(self, state: GameState, seat: int) -> bool:
+        return any(
+            player.seat != seat
+            and not player.folded
+            and not player.all_in
+            and player.stack > 0
             for player in state.players
         )
 
