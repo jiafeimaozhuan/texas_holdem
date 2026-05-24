@@ -334,6 +334,21 @@ def test_visible_payload_rejects_card_like_strings_in_known_history_fields() -> 
     assert history[-1] == {"type": "settlement", "winners": [1], "pot": 30}
 
 
+def test_visible_payload_does_not_echo_unknown_card_like_history_type() -> None:
+    engine, state = preflop_facing_bet_state()
+    acting_seat = state.current_actor_seat
+    legal_actions = engine.legal_actions(state, acting_seat)
+    state.hand_history.append({"type": "Kc Kd", "cards": ["Kc", "Kd"]})
+    service = AIService(primary_provider=HeuristicProvider())
+
+    payload = service.build_visible_payload(state, acting_seat, legal_actions)
+
+    payload_repr = repr(payload)
+    assert "Kc Kd" not in payload_repr
+    assert "Kc" not in payload_repr
+    assert "Kd" not in payload_repr
+
+
 @pytest.mark.asyncio
 async def test_ai_service_hides_opponent_hole_cards_from_visible_prompt_payload() -> None:
     class CapturingProvider:

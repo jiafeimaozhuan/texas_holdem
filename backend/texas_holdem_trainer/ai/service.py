@@ -249,8 +249,10 @@ def _sanitize_history_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
         if winners is not None:
             sanitized["winners"] = winners
         return sanitized
+    if event_type == "debug_reveal":
+        return {"type": event_type}
 
-    return {"type": event_type}
+    return {}
 
 
 def _copy_typed_fields(
