@@ -30,7 +30,7 @@ Start the backend from the repository root:
 
 ```bash
 source .venv/bin/activate
-uvicorn texas_holdem_trainer.api.app:app --reload --app-dir backend --port 8000
+PYTHONPATH=backend python -m uvicorn texas_holdem_trainer.api.app:app --reload --reload-dir backend --port 8000
 ```
 
 Start the frontend in another terminal:
@@ -45,7 +45,7 @@ Open the Vite URL, usually `http://127.0.0.1:5173`.
 If port `8000` is already in use, start the backend on another port and point the Vite proxy to it:
 
 ```bash
-uvicorn texas_holdem_trainer.api.app:app --app-dir backend --port 8001
+PYTHONPATH=backend python -m uvicorn texas_holdem_trainer.api.app:app --reload --reload-dir backend --port 8001
 cd frontend
 VITE_PROXY_TARGET=http://127.0.0.1:8001 npm run dev
 ```
