@@ -34,8 +34,9 @@ npm install
 启动后端：
 
 ```bash
+cd /path/to/texas_holdem
 source .venv/bin/activate
-PYTHONPATH=backend python -m uvicorn texas_holdem_trainer.api.app:app --reload --reload-dir backend --port 8000
+PYTHONPATH="$PWD/backend" python -m uvicorn texas_holdem_trainer.api.app:app --reload --reload-dir "$PWD/backend" --port 8000
 ```
 
 启动前端：
@@ -54,7 +55,8 @@ http://127.0.0.1:5173
 如果本机 `8000` 端口已被占用，可以改用备用端口：
 
 ```bash
-PYTHONPATH=backend python -m uvicorn texas_holdem_trainer.api.app:app --reload --reload-dir backend --port 8001
+cd /path/to/texas_holdem
+PYTHONPATH="$PWD/backend" python -m uvicorn texas_holdem_trainer.api.app:app --reload --reload-dir "$PWD/backend" --port 8001
 cd frontend
 VITE_PROXY_TARGET=http://127.0.0.1:8001 npm run dev
 ```
