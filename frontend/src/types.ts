@@ -65,6 +65,7 @@ export interface CoachEventView {
   amount: number;
   confidence: number;
   reasoning: string;
+  source_reasoning?: string | null;
   fallback_used: boolean;
   fallback_reason?: string | null;
 }
@@ -92,6 +93,7 @@ export interface HistoryEventView {
   model?: string | null;
   confidence?: number | null;
   reasoning?: string | null;
+  source_reasoning?: string | null;
   fallback_used?: boolean | null;
   fallback_reason?: string | null;
   [key: string]: unknown;

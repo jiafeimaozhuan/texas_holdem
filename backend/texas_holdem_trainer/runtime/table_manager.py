@@ -114,6 +114,7 @@ class TableManager:
         legal_actions = self.engine.legal_actions(state, human_seat)
         self._ensure_legal_request(request.action, request.amount, legal_actions)
         self.engine.apply_action(state, human_seat, request.action, request.amount)
+        await self.broadcast(table_id)
         await self._advance_ai_turns(session)
         response = self._state_response(session)
         await self.broadcast(table_id, response)
@@ -184,6 +185,7 @@ class TableManager:
             event = self._coach_event(state, seat, profile, decision)
             self.engine.apply_action(state, seat, decision.action, decision.amount)
             session.coach_events.append(event)
+            await self.broadcast(state.table_id)
 
     def _state_response(self, session: TableSession) -> TableStateResponse:
         state = session.state
@@ -258,6 +260,7 @@ class TableManager:
             amount=decision.amount,
             confidence=decision.confidence,
             reasoning=decision.reasoning,
+            source_reasoning=decision.source_reasoning,
             fallback_used=decision.fallback_used,
             fallback_reason=decision.fallback_reason,
         )

@@ -7,6 +7,8 @@ import { PlayerSeat } from "./PlayerSeat";
 interface PokerTableProps {
   state: TableStateResponse | null;
   seatStyles: Record<number, string>;
+  selectedCoachSeat: number | null;
+  onSelectCoachSeat: (seat: number) => void;
 }
 
 function blindMap(state: TableStateResponse): Record<number, string> {
@@ -29,7 +31,12 @@ function seatPosition(index: number, total: number): CSSProperties {
   } as CSSProperties;
 }
 
-export function PokerTable({ state, seatStyles }: PokerTableProps) {
+export function PokerTable({
+  state,
+  seatStyles,
+  selectedCoachSeat,
+  onSelectCoachSeat,
+}: PokerTableProps) {
   if (!state) {
     return (
       <section className="table-stage table-stage--empty" aria-label="牌桌">
@@ -72,7 +79,9 @@ export function PokerTable({ state, seatStyles }: PokerTableProps) {
               isDealer={player.seat === state.dealer_seat}
               blind={blinds[player.seat]}
               isActor={player.seat === state.current_actor_seat}
+              isCoachSelected={player.seat === selectedCoachSeat}
               styleLabel={seatStyles[player.seat]}
+              onSelectCoach={player.is_human ? undefined : onSelectCoachSeat}
             />
           </div>
         ))}

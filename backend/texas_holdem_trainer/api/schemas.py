@@ -66,6 +66,7 @@ class CoachEventView(BaseModel):
     amount: int
     confidence: float
     reasoning: str
+    source_reasoning: str | None = None
     fallback_used: bool
     fallback_reason: str | None = None
 
@@ -95,6 +96,7 @@ class HistoryEventView(BaseModel):
     model: str | None = None
     confidence: float | None = None
     reasoning: str | None = None
+    source_reasoning: str | None = None
     fallback_used: bool | None = None
     fallback_reason: str | None = None
 

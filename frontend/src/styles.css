@@ -346,6 +346,22 @@ select {
   border-color: #316f80;
 }
 
+.player-seat--selectable {
+  cursor: pointer;
+}
+
+.player-seat--selectable:hover,
+.player-seat--selectable:focus-visible {
+  border-color: #2f6f57;
+  box-shadow: 0 0 0 3px rgb(47 111 87 / 22%), 0 8px 18px rgb(23 32 42 / 18%);
+  outline: none;
+}
+
+.player-seat--coach-selected {
+  border-color: #2f6f57;
+  box-shadow: 0 0 0 3px rgb(47 111 87 / 32%), 0 8px 18px rgb(23 32 42 / 18%);
+}
+
 .player-seat--actor {
   box-shadow:
     0 0 0 3px #e0b544,
@@ -458,6 +474,24 @@ select {
   padding-bottom: 14px;
 }
 
+.text-button {
+  background: transparent;
+  border: 0;
+  color: #2f6f57;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 900;
+  padding: 4px 0;
+}
+
+.text-button:hover,
+.text-button:focus-visible {
+  color: #194f3c;
+  outline: none;
+  text-decoration: underline;
+}
+
 .action-list {
   display: grid;
   gap: 10px;
@@ -512,6 +546,25 @@ select {
 
 .coach-metrics {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.coach-reasoning-block {
+  background: #f7faf9;
+  border: 1px solid #dfe8e4;
+  border-radius: 6px;
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+}
+
+.coach-reasoning-block span {
+  color: #637384;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.coach-reasoning-block--public {
+  background: #f5f7f9;
 }
 
 .coach-reasoning,

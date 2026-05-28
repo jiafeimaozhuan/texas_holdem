@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any, Mapping, Protocol, Sequence
 
@@ -13,12 +14,21 @@ from texas_holdem_trainer.domain.evaluator import HandCategory, evaluate_best
 from texas_holdem_trainer.domain.state import GameState
 
 
+logger = logging.getLogger(__name__)
+
+
+def _emit_llm_log(message: str) -> None:
+    logger.info(message)
+    print(message, flush=True)
+
+
 @dataclass(frozen=True)
 class DecisionResult:
     action: ActionType
     amount: int = 0
     confidence: float = 0.5
     reasoning: str = ""
+    source_reasoning: str | None = None
     fallback_used: bool = False
     fallback_reason: str | None = None
 
@@ -176,7 +186,7 @@ class LLMProvider:
                     "role": "system",
                     "content": (
                         "Choose exactly one backend-provided Texas Hold'em legal "
-                        "action. Return strict JSON only."
+                        "action. Return strict JSON only. Write reasoning in Chinese."
                     ),
                 },
                 {
@@ -203,7 +213,7 @@ class LLMProvider:
                                 "action": "fold|check|call|bet|raise|all_in",
                                 "amount": "integer",
                                 "confidence": "number between 0 and 1",
-                                "reasoning": "short string",
+                                "reasoning": "short Chinese string",
                             },
                         },
                         separators=(",", ":"),
@@ -216,15 +226,28 @@ class LLMProvider:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+        request_url = f"{self.base_url}/chat/completions"
+        _emit_llm_log(
+            "LLM request "
+            f"url={request_url} "
+            f"model={payload['model']} "
+            f"payload={json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}"
+        )
 
         async with httpx.AsyncClient(
             timeout=self.timeout,
             transport=self.transport,
         ) as client:
             response = await client.post(
-                f"{self.base_url}/chat/completions",
+                request_url,
                 json=payload,
                 headers=headers,
+            )
+            _emit_llm_log(
+                "LLM response "
+                f"url={request_url} "
+                f"status={response.status_code} "
+                f"body={response.text}"
             )
             response.raise_for_status()
 

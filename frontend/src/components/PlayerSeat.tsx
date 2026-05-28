@@ -7,7 +7,9 @@ interface PlayerSeatProps {
   isDealer: boolean;
   blind?: string;
   isActor: boolean;
+  isCoachSelected?: boolean;
   styleLabel?: string;
+  onSelectCoach?: (seat: number) => void;
 }
 
 export function PlayerSeat({
@@ -15,21 +17,43 @@ export function PlayerSeat({
   isDealer,
   blind,
   isActor,
+  isCoachSelected = false,
   styleLabel,
+  onSelectCoach,
 }: PlayerSeatProps) {
   const hiddenCards = player.hole_cards == null;
+  const isCoachSelectable = Boolean(onSelectCoach && !player.is_human);
   const seatClasses = [
     "player-seat",
     player.is_human ? "player-seat--human" : "",
     player.folded ? "player-seat--folded" : "",
     player.all_in ? "player-seat--all-in" : "",
     isActor ? "player-seat--actor" : "",
+    isCoachSelectable ? "player-seat--selectable" : "",
+    isCoachSelected ? "player-seat--coach-selected" : "",
   ]
     .filter(Boolean)
     .join(" ");
 
   return (
-    <article className={seatClasses} aria-label={`${player.name}，${seatLabel(player.seat)}`}>
+    <article
+      className={seatClasses}
+      aria-label={`${player.name}，${seatLabel(player.seat)}`}
+      aria-pressed={isCoachSelectable ? isCoachSelected : undefined}
+      role={isCoachSelectable ? "button" : undefined}
+      tabIndex={isCoachSelectable ? 0 : undefined}
+      onClick={isCoachSelectable ? () => onSelectCoach?.(player.seat) : undefined}
+      onKeyDown={
+        isCoachSelectable
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onSelectCoach?.(player.seat);
+              }
+            }
+          : undefined
+      }
+    >
       <div className="seat-topline">
         <span className="seat-number">{seatLabel(player.seat)}</span>
         <span className="seat-badges">

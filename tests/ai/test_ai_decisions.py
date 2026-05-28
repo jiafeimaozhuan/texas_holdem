@@ -1,3 +1,4 @@
+import logging
 from typing import get_type_hints
 
 import httpx
@@ -416,6 +417,7 @@ async def test_ai_service_replaces_primary_reasoning_with_public_template() -> N
     assert "[private cards]" not in result.reasoning
     assert "can continue" not in result.reasoning
     assert "跟注" in result.reasoning
+    assert result.source_reasoning == "I hold [private cards] and can continue."
 
 
 @pytest.mark.asyncio
@@ -705,6 +707,59 @@ async def test_llm_provider_parses_strict_json_response_from_mock_transport() ->
         confidence=0.76,
         reasoning="priced in",
     )
+
+
+@pytest.mark.asyncio
+async def test_llm_provider_logs_request_and_response_without_api_key(
+    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                '{"action":"call","amount":10,'
+                                '"confidence":0.76,"reasoning":"priced in"}'
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    engine, state = preflop_facing_bet_state()
+    seat = state.current_actor_seat
+    legal_actions = engine.legal_actions(state, seat)
+    provider = LLMProvider(
+        base_url="https://example.test",
+        api_key="secret-token",
+        model="test-model",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with caplog.at_level(logging.INFO, logger="texas_holdem_trainer.ai.providers"):
+        await provider.decide(
+            state,
+            seat,
+            BotProfile.for_style("bot", BotStyle.GTO_LEANING, provider="llm"),
+            legal_actions,
+            visible_state={"acting_seat": seat},
+        )
+
+    logs = "\n".join(record.getMessage() for record in caplog.records)
+    printed = capsys.readouterr().out
+    combined = f"{logs}\n{printed}"
+    assert "LLM request" in combined
+    assert "LLM response" in combined
+    assert "test-model" in combined
+    assert '\\"visible_state\\":{\\"acting_seat\\":0}' in combined
+    assert '"content":"{\\"action\\":\\"call\\",\\"amount\\":10' in combined
+    assert "secret-token" not in combined
+    assert "Authorization" not in combined
 
 
 @pytest.mark.asyncio

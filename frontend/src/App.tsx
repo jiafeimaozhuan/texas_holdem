@@ -131,8 +131,16 @@ function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [socketStatus, setSocketStatus] = useState("offline");
   const [error, setError] = useState<string | null>(null);
+  const [selectedCoachSeat, setSelectedCoachSeat] = useState<number | null>(null);
 
   const tableStatus = useMemo(() => actorStatus(state), [state]);
+  const selectedCoachPlayer = useMemo(
+    () =>
+      state?.players.find(
+        (player) => player.seat === selectedCoachSeat && !player.is_human,
+      ) ?? null,
+    [state?.players, selectedCoachSeat],
+  );
   const canStartHand = Boolean(
     state && (state.street === "waiting" || state.street === "complete"),
   );
@@ -194,6 +202,7 @@ function App() {
       setTableConfig(request);
       setSeatStyles(stylesBySeat(nextState, request));
       setState(nextState);
+      setSelectedCoachSeat(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "无法创建牌桌");
     } finally {
@@ -291,7 +300,12 @@ function App() {
 
       <div className="workspace-layout">
         <div className="table-column">
-          <PokerTable state={state} seatStyles={seatStyles} />
+          <PokerTable
+            state={state}
+            seatStyles={seatStyles}
+            selectedCoachSeat={selectedCoachPlayer ? selectedCoachSeat : null}
+            onSelectCoachSeat={setSelectedCoachSeat}
+          />
           <ActionControls
             state={state}
             isSubmitting={isSubmitting}
@@ -300,7 +314,12 @@ function App() {
         </div>
 
         <aside className="side-column" aria-label="训练面板">
-          <CoachPanel events={state?.coach_events ?? []} />
+          <CoachPanel
+            events={state?.coach_events ?? []}
+            selectedSeat={selectedCoachPlayer ? selectedCoachSeat : null}
+            selectedPlayerName={selectedCoachPlayer?.name}
+            onClearSelection={() => setSelectedCoachSeat(null)}
+          />
           <SettingsPanel
             config={tableConfig}
             disabled={isCreating || isStartingHand || isSubmitting}

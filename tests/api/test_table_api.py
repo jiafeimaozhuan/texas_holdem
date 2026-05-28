@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from texas_holdem_trainer.ai.providers import HeuristicProvider
 from texas_holdem_trainer.ai.service import AIService
+from texas_holdem_trainer.api.schemas import CreateTableRequest, SubmitActionRequest
 from texas_holdem_trainer.api.app import app, table_manager
 
 
@@ -95,6 +96,7 @@ def test_table_rest_flow_hides_bot_cards_and_records_ai_reasoning() -> None:
     assert all(event["provider"] == "heuristic" for event in ai_events)
     assert all(event["model"] == "local" for event in ai_events)
     assert all(event["reasoning"] for event in ai_events)
+    assert all(event["source_reasoning"] for event in ai_events)
     assert all("hole_cards" not in json.dumps(event) for event in ai_events)
 
 
@@ -105,6 +107,92 @@ def test_unknown_table_returns_404() -> None:
 
     assert response.status_code == 404
     assert response.json()["detail"] == "table not found"
+
+
+def test_human_fold_continues_hand_with_remaining_bots() -> None:
+    client = TestClient(app)
+
+    create_response = client.post(
+        "/api/table",
+        json={
+            "player_names": ["Ada", "Babbage", "Claude", "Hero"],
+            "bot_styles": ["tight_aggressive", "conservative", "gto_leaning"],
+            "starting_stack": 500,
+            "small_blind": 5,
+            "big_blind": 10,
+            "human_seat": 3,
+            "seed": 101,
+        },
+    )
+    assert create_response.status_code == 201
+    table_id = create_response.json()["table_id"]
+
+    hand_response = client.post(f"/api/table/{table_id}/hand")
+    assert hand_response.status_code == 200
+    started = hand_response.json()["state"]
+    assert started["current_actor_seat"] == 3
+    assert "fold" in {action["action"] for action in started["legal_actions"]}
+
+    action_response = client.post(
+        f"/api/table/{table_id}/action",
+        json={"action": "fold", "amount": 0},
+    )
+
+    assert action_response.status_code == 200
+    advanced = action_response.json()
+    assert advanced["players"][3]["folded"] is True
+    assert advanced["street"] == "complete"
+    assert advanced.get("current_actor_seat") is None
+    assert advanced["legal_actions"] == []
+
+    history_response = client.get(f"/api/table/{table_id}/history")
+    assert history_response.status_code == 200
+    history = history_response.json()
+    human_fold_index = next(
+        index
+        for index, event in enumerate(history["events"])
+        if event["type"] == "action"
+        and event["seat"] == 3
+        and event["action"] == "fold"
+    )
+    assert any(
+        event["type"] == "ai_decision" for event in history["events"][human_fold_index + 1 :]
+    )
+
+
+@pytest.mark.asyncio
+async def test_human_fold_broadcasts_ai_continuation_before_completion() -> None:
+    state = table_manager.create_table(
+        CreateTableRequest(
+            player_names=["Ada", "Babbage", "Claude", "Hero"],
+            bot_styles=["tight_aggressive", "conservative", "gto_leaning"],
+            starting_stack=500,
+            small_blind=5,
+            big_blind=10,
+            human_seat=3,
+            seed=101,
+        )
+    )
+    await table_manager.start_hand(state.table_id)
+    queue = await table_manager.subscribe(state.table_id)
+    await queue.get()
+
+    await table_manager.submit_human_action(
+        state.table_id,
+        SubmitActionRequest(action="fold", amount=0),
+    )
+
+    updates = []
+    while not queue.empty():
+        updates.append(queue.get_nowait())
+
+    assert any(
+        update.players[3].folded
+        and update.street != "complete"
+        and update.current_actor_seat != 3
+        for update in updates
+    )
+    assert updates[-1].street == "complete"
 
 
 def _choose_legal_action(legal_actions: list[dict]) -> dict:

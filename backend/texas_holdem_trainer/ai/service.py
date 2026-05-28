@@ -87,6 +87,7 @@ class AIService:
             result,
             profile,
             legal_actions,
+            private_cards=state.players[seat].hole_cards,
             fallback_used=False,
             fallback_reason=None,
         )
@@ -196,6 +197,7 @@ class AIService:
             fallback,
             profile,
             legal_actions,
+            private_cards=state.players[seat].hole_cards,
             fallback_used=True,
             fallback_reason=reason,
         )
@@ -206,6 +208,7 @@ class AIService:
         profile: BotProfile,
         legal_actions: Sequence[LegalAction],
         *,
+        private_cards: Sequence[Card],
         fallback_used: bool,
         fallback_reason: str | None,
     ) -> DecisionResult:
@@ -216,6 +219,10 @@ class AIService:
                 profile,
                 legal_actions,
                 fallback_used=fallback_used,
+            ),
+            source_reasoning=self.sanitize_public_reasoning(
+                result.reasoning,
+                private_cards,
             ),
             fallback_used=fallback_used,
             fallback_reason=fallback_reason,

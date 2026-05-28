@@ -10,14 +10,37 @@ import type { CoachEventView } from "../types";
 
 interface CoachPanelProps {
   events: CoachEventView[];
+  selectedSeat: number | null;
+  selectedPlayerName?: string | null;
+  onClearSelection: () => void;
 }
 
 function formatAction(event: CoachEventView): string {
   return actionWithAmount(event.action, event.amount);
 }
 
-export function CoachPanel({ events }: CoachPanelProps) {
-  const latest = events.length > 0 ? events[events.length - 1] : undefined;
+function displayedReasoning(event: CoachEventView): string {
+  if (event.provider !== "heuristic" && event.source_reasoning?.trim()) {
+    return event.source_reasoning.trim();
+  }
+  return event.reasoning;
+}
+
+function reasoningTitle(event: CoachEventView): string {
+  return event.provider === "heuristic" ? "决策说明" : "LLM 返回思考";
+}
+
+export function CoachPanel({
+  events,
+  selectedSeat,
+  selectedPlayerName,
+  onClearSelection,
+}: CoachPanelProps) {
+  const latest =
+    selectedSeat == null
+      ? events[events.length - 1]
+      : [...events].reverse().find((event) => event.seat === selectedSeat);
+  const isFiltered = selectedSeat != null;
 
   return (
     <section className="panel coach-panel" aria-label="教练面板">
@@ -25,9 +48,18 @@ export function CoachPanel({ events }: CoachPanelProps) {
         <div>
           <h2>教练</h2>
           <span>
-            {latest ? `第 ${latest.hand_number} 手 / ${streetLabel(latest.street)}` : "空闲"}
+            {isFiltered
+              ? `查看 ${selectedPlayerName ?? "电脑玩家"}`
+              : latest
+                ? `第 ${latest.hand_number} 手 / ${streetLabel(latest.street)}`
+                : "空闲"}
           </span>
         </div>
+        {isFiltered ? (
+          <button type="button" className="text-button" onClick={onClearSelection}>
+            查看最新
+          </button>
+        ) : null}
       </div>
 
       {latest ? (
@@ -60,7 +92,16 @@ export function CoachPanel({ events }: CoachPanelProps) {
             </div>
           </dl>
 
-          <p className="coach-reasoning">{latest.reasoning}</p>
+          <div className="coach-reasoning-block">
+            <span>{reasoningTitle(latest)}</span>
+            <p className="coach-reasoning">{displayedReasoning(latest)}</p>
+          </div>
+          {latest.provider !== "heuristic" && latest.source_reasoning ? (
+            <div className="coach-reasoning-block coach-reasoning-block--public">
+              <span>公开说明</span>
+              <p className="coach-reasoning">{latest.reasoning}</p>
+            </div>
+          ) : null}
           {latest.fallback_used ? (
             <p className="fallback-reason">
               {fallbackReasonLabel(latest.fallback_reason)}
@@ -68,7 +109,9 @@ export function CoachPanel({ events }: CoachPanelProps) {
           ) : null}
         </div>
       ) : (
-        <span className="muted-state">暂无电脑决策</span>
+        <span className="muted-state">
+          {isFiltered ? "该玩家暂无决策记录" : "暂无电脑决策"}
+        </span>
       )}
     </section>
   );
