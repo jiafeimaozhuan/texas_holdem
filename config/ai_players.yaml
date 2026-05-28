@@ -1,0 +1,41 @@
+providers:
+  openai:
+    base_url: "https://api.openai.com/v1"
+    api_key_env: "OPENAI_API_KEY"
+    model: "gpt-5.5"
+    temperature: 0.4
+  deepseek:
+    base_url: "https://api.deepseek.com"
+    api_key_env: "DEEPSEEK_API_KEY"
+    model: "deepseek-v4-pro"
+    temperature: 0.4
+  codex_app:
+    runtime: "codex_app_server"
+    command: "codex"
+    model: "gpt-5.5"
+    timeout_seconds: 60
+profiles:
+  - name: "TAG Bot"
+    style: "tight_aggressive"
+    # provider: "deepseek"
+    # provider: "openai"
+    provider: "codex_app"
+  - name: "LAG Bot"
+    style: "loose_aggressive"
+    # provider: "openai"
+    # provider: "deepseek"
+    provider: "codex_app"
+  - name: "CONV Bot"
+    style: "conservative"
+    # provider: "openai"
+    # provider: "deepseek"
+    provider: "codex_app"
+  - name: "BLUFF Bot"
+    style: "bluff_heavy"
+    # provider: "deepseek"
+    provider: "codex_app"
+  - name: "GTO Bot"
+    style: "gto_leaning"
+    # provider: "openai"
+    # provider: "deepseek"
+    provider: "codex_app"
