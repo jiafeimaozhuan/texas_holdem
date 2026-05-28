@@ -70,6 +70,25 @@ export interface CoachEventView {
   fallback_reason?: string | null;
 }
 
+export interface HumanReviewEventView {
+  type: "human_review";
+  hand_number: number;
+  street: string;
+  seat: number;
+  name: string;
+  action: ActionType;
+  amount: number;
+  score: number;
+  label: string;
+  reasoning: string;
+  suggested_action?: ActionType | null;
+  suggested_amount?: number | null;
+  provider: string;
+  model: string;
+  fallback_used: boolean;
+  fallback_reason?: string | null;
+}
+
 export interface HistoryEventView {
   type: string;
   hand_number?: number | null;
@@ -96,6 +115,10 @@ export interface HistoryEventView {
   source_reasoning?: string | null;
   fallback_used?: boolean | null;
   fallback_reason?: string | null;
+  score?: number | null;
+  label?: string | null;
+  suggested_action?: string | null;
+  suggested_amount?: number | null;
   [key: string]: unknown;
 }
 
@@ -115,6 +138,7 @@ export interface TableStateResponse {
   players: PlayerView[];
   legal_actions: LegalActionView[];
   coach_events: CoachEventView[];
+  human_review_events: HumanReviewEventView[];
   history_events: HistoryEventView[];
   ai_provider_status: string;
 }

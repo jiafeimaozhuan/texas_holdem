@@ -5,7 +5,12 @@ from dataclasses import replace
 from typing import Any, Mapping, Sequence
 
 from texas_holdem_trainer.ai.profiles import BotProfile
-from texas_holdem_trainer.ai.providers import AIProvider, DecisionResult, HeuristicProvider
+from texas_holdem_trainer.ai.providers import (
+    AIProvider,
+    DecisionResult,
+    HeuristicProvider,
+    HumanReviewResult,
+)
 from texas_holdem_trainer.domain.actions import ActionType, LegalAction
 from texas_holdem_trainer.domain.cards import Card
 from texas_holdem_trainer.domain.state import GameState
@@ -41,10 +46,14 @@ class AIService:
         primary_provider: AIProvider,
         fallback_provider: AIProvider | None = None,
         providers: Mapping[str, AIProvider] | None = None,
+        reviewer_provider: str = "heuristic",
+        reviewer_model: str | None = None,
     ) -> None:
         self.primary_provider = primary_provider
         self.fallback_provider = fallback_provider or HeuristicProvider()
         self.providers = dict(providers or {})
+        self.reviewer_provider = reviewer_provider
+        self.reviewer_model = reviewer_model
 
     async def decide(
         self,
@@ -101,6 +110,94 @@ class AIService:
             private_cards=state.players[seat].hole_cards,
             fallback_used=False,
             fallback_reason=None,
+        )
+
+    async def review_human_action(
+        self,
+        state: GameState,
+        seat: int,
+        legal_actions: Sequence[LegalAction],
+        action: ActionType,
+        amount: int,
+    ) -> HumanReviewResult:
+        visible_state = self.build_visible_payload(state, seat, legal_actions)
+        provider = self.providers.get(self.reviewer_provider, self.fallback_provider)
+        try:
+            result = await provider.review_human_action(
+                state,
+                seat,
+                legal_actions,
+                action,
+                amount,
+                visible_state=visible_state,
+            )
+        except Exception as exc:
+            logger.exception(
+                "Human review provider failed table=%s hand=%s seat=%s provider=%s",
+                state.table_id,
+                state.hand_number,
+                seat,
+                self.reviewer_provider,
+            )
+            fallback = await self.fallback_provider.review_human_action(
+                state,
+                seat,
+                legal_actions,
+                action,
+                amount,
+                visible_state=visible_state,
+            )
+            return replace(
+                fallback,
+                provider="heuristic",
+                model="local",
+                fallback_used=True,
+                fallback_reason=_provider_error_reason(exc),
+            )
+
+        if not isinstance(result, HumanReviewResult):
+            fallback = await self.fallback_provider.review_human_action(
+                state,
+                seat,
+                legal_actions,
+                action,
+                amount,
+                visible_state=visible_state,
+            )
+            return replace(
+                fallback,
+                provider="heuristic",
+                model="local",
+                fallback_used=True,
+                fallback_reason="invalid_review_result",
+            )
+
+        normalized_result = self.normalize_review_result(result, legal_actions)
+        if normalized_result is None:
+            fallback = await self.fallback_provider.review_human_action(
+                state,
+                seat,
+                legal_actions,
+                action,
+                amount,
+                visible_state=visible_state,
+            )
+            return replace(
+                fallback,
+                provider="heuristic",
+                model="local",
+                fallback_used=True,
+                fallback_reason="invalid_review_result",
+            )
+
+        return replace(
+            normalized_result,
+            provider=self.reviewer_provider,
+            model=self.reviewer_model or normalized_result.model,
+            reasoning=self.sanitize_public_reasoning(
+                normalized_result.reasoning,
+                state.players[seat].hole_cards,
+            ),
         )
 
     def sanitize_public_reasoning(
@@ -183,6 +280,60 @@ class AIService:
             and action.min_amount <= result.amount <= action.max_amount
             for action in legal_actions
         )
+
+    def is_valid_review_result(
+        self,
+        result: HumanReviewResult,
+        legal_actions: Sequence[LegalAction],
+    ) -> bool:
+        if (
+            not isinstance(result.score, int)
+            or isinstance(result.score, bool)
+            or not 0 <= result.score <= 100
+        ):
+            return False
+        if result.label not in {"优秀", "可接受", "偏松", "偏紧", "风险过高"}:
+            return False
+        if not isinstance(result.reasoning, str):
+            return False
+        if result.suggested_action is None:
+            return result.suggested_amount is None
+        if not isinstance(result.suggested_action, ActionType):
+            return False
+        if not isinstance(result.suggested_amount, int) or isinstance(
+            result.suggested_amount,
+            bool,
+        ):
+            return False
+        return any(
+            action.type is result.suggested_action
+            and action.min_amount <= result.suggested_amount <= action.max_amount
+            for action in legal_actions
+        )
+
+    def normalize_review_result(
+        self,
+        result: HumanReviewResult,
+        legal_actions: Sequence[LegalAction],
+    ) -> HumanReviewResult | None:
+        if result.suggested_action is None:
+            normalized = replace(result, suggested_amount=None)
+        elif result.suggested_amount is None:
+            exact_zero_amount = next(
+                (
+                    action.min_amount
+                    for action in legal_actions
+                    if action.type is result.suggested_action
+                    and action.min_amount == action.max_amount
+                ),
+                None,
+            )
+            if exact_zero_amount is None:
+                return None
+            normalized = replace(result, suggested_amount=exact_zero_amount)
+        else:
+            normalized = result
+        return normalized if self.is_valid_review_result(normalized, legal_actions) else None
 
     async def _fallback(
         self,

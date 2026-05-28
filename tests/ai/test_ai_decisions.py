@@ -9,6 +9,7 @@ from texas_holdem_trainer.ai.providers import (
     CodexAppServerClient,
     CodexAppServerProvider,
     HeuristicProvider,
+    HumanReviewResult,
     LLMProvider,
 )
 from texas_holdem_trainer.ai.service import AIService, DecisionResult
@@ -77,6 +78,29 @@ async def test_heuristic_provider_returns_one_backend_legal_action() -> None:
 
     assert is_backend_legal(result, legal_actions)
     assert result.reasoning
+
+
+@pytest.mark.asyncio
+async def test_heuristic_provider_reviews_human_action() -> None:
+    engine, state = preflop_facing_bet_state()
+    seat = state.current_actor_seat
+    legal_actions = engine.legal_actions(state, seat)
+    call = next(action for action in legal_actions if action.type is ActionType.CALL)
+    provider = HeuristicProvider()
+
+    result = await provider.review_human_action(
+        state,
+        seat,
+        legal_actions,
+        ActionType.CALL,
+        call.min_amount,
+    )
+
+    assert isinstance(result, HumanReviewResult)
+    assert 0 <= result.score <= 100
+    assert result.label in {"优秀", "可接受", "偏松", "偏紧", "风险过高"}
+    assert result.reasoning
+    assert result.suggested_action in {action.type for action in legal_actions}
 
 
 def test_bot_profile_style_changes_aggression_parameters() -> None:
@@ -375,6 +399,270 @@ async def test_ai_service_public_reasoning_mentions_action_or_style() -> None:
     assert result.reasoning
     assert "跟注" in public_reasoning or "保守" in public_reasoning
     assert result.reasoning != "ok"
+
+
+@pytest.mark.asyncio
+async def test_ai_service_reviews_human_action_with_configured_provider() -> None:
+    class ReviewProvider:
+        async def decide(self, state, seat, profile, legal_actions, visible_state=None):
+            raise AssertionError("decision path should not be used")
+
+        async def review_human_action(
+            self,
+            state,
+            seat,
+            legal_actions,
+            action,
+            amount,
+            visible_state=None,
+        ):
+            assert visible_state is not None
+            return HumanReviewResult(
+                score=91,
+                label="优秀",
+                reasoning="Kc Kd 这里跟注价格合理。",
+                suggested_action=action,
+                suggested_amount=amount,
+                provider="custom",
+                model="custom-model",
+            )
+
+    engine, state = preflop_facing_bet_state()
+    seat = state.current_actor_seat
+    state.players[seat].hole_cards = [c("Kc"), c("Kd")]
+    legal_actions = engine.legal_actions(state, seat)
+    call = next(action for action in legal_actions if action.type is ActionType.CALL)
+    service = AIService(
+        primary_provider=HeuristicProvider(),
+        fallback_provider=HeuristicProvider(),
+        providers={"reviewer": ReviewProvider()},
+        reviewer_provider="reviewer",
+        reviewer_model="review-model",
+    )
+
+    result = await service.review_human_action(
+        state,
+        seat,
+        legal_actions,
+        ActionType.CALL,
+        call.min_amount,
+    )
+
+    assert result.score == 91
+    assert result.provider == "reviewer"
+    assert result.model == "review-model"
+    assert result.fallback_used is False
+    assert "Kc" not in result.reasoning
+    assert "Kd" not in result.reasoning
+    assert "[private cards]" in result.reasoning
+
+
+@pytest.mark.asyncio
+async def test_ai_service_falls_back_when_review_provider_fails() -> None:
+    class FailingReviewProvider:
+        async def decide(self, state, seat, profile, legal_actions, visible_state=None):
+            raise AssertionError("decision path should not be used")
+
+        async def review_human_action(
+            self,
+            state,
+            seat,
+            legal_actions,
+            action,
+            amount,
+            visible_state=None,
+        ):
+            raise TimeoutError("review timed out")
+
+    engine, state = preflop_facing_bet_state()
+    seat = state.current_actor_seat
+    legal_actions = engine.legal_actions(state, seat)
+    call = next(action for action in legal_actions if action.type is ActionType.CALL)
+    service = AIService(
+        primary_provider=HeuristicProvider(),
+        fallback_provider=HeuristicProvider(),
+        providers={"reviewer": FailingReviewProvider()},
+        reviewer_provider="reviewer",
+    )
+
+    result = await service.review_human_action(
+        state,
+        seat,
+        legal_actions,
+        ActionType.CALL,
+        call.min_amount,
+    )
+
+    assert result.provider == "heuristic"
+    assert result.model == "local"
+    assert result.fallback_used is True
+    assert result.fallback_reason == "primary_provider_error: TimeoutError: review timed out"
+    assert result.reasoning
+
+
+@pytest.mark.asyncio
+async def test_ai_service_falls_back_when_review_provider_suggests_illegal_action() -> None:
+    class IllegalReviewProvider:
+        async def decide(self, state, seat, profile, legal_actions, visible_state=None):
+            raise AssertionError("decision path should not be used")
+
+        async def review_human_action(
+            self,
+            state,
+            seat,
+            legal_actions,
+            action,
+            amount,
+            visible_state=None,
+        ):
+            return HumanReviewResult(
+                score=88,
+                label="优秀",
+                reasoning="非法建议不应被前端展示。",
+                suggested_action=ActionType.CHECK,
+                suggested_amount=0,
+            )
+
+    engine, state = preflop_facing_bet_state()
+    seat = state.current_actor_seat
+    legal_actions = engine.legal_actions(state, seat)
+    call = next(action for action in legal_actions if action.type is ActionType.CALL)
+    service = AIService(
+        primary_provider=HeuristicProvider(),
+        fallback_provider=HeuristicProvider(),
+        providers={"reviewer": IllegalReviewProvider()},
+        reviewer_provider="reviewer",
+    )
+
+    result = await service.review_human_action(
+        state,
+        seat,
+        legal_actions,
+        ActionType.CALL,
+        call.min_amount,
+    )
+
+    assert result.provider == "heuristic"
+    assert result.fallback_used is True
+    assert result.fallback_reason == "invalid_review_result"
+    assert result.suggested_action in {action.type for action in legal_actions}
+
+
+@pytest.mark.asyncio
+async def test_ai_service_accepts_no_suggestion_with_zero_amount() -> None:
+    class NoSuggestionReviewProvider:
+        async def decide(self, state, seat, profile, legal_actions, visible_state=None):
+            raise AssertionError("decision path should not be used")
+
+        async def review_human_action(
+            self,
+            state,
+            seat,
+            legal_actions,
+            action,
+            amount,
+            visible_state=None,
+        ):
+            return HumanReviewResult(
+                score=89,
+                label="优秀",
+                reasoning="本次行动合理，无需调整。",
+                suggested_action=None,
+                suggested_amount=0,
+            )
+
+    engine, state = preflop_facing_bet_state()
+    seat = state.current_actor_seat
+    legal_actions = engine.legal_actions(state, seat)
+    call = next(action for action in legal_actions if action.type is ActionType.CALL)
+    service = AIService(
+        primary_provider=HeuristicProvider(),
+        fallback_provider=HeuristicProvider(),
+        providers={"reviewer": NoSuggestionReviewProvider()},
+        reviewer_provider="reviewer",
+        reviewer_model="review-model",
+    )
+
+    result = await service.review_human_action(
+        state,
+        seat,
+        legal_actions,
+        ActionType.CALL,
+        call.min_amount,
+    )
+
+    assert result.provider == "reviewer"
+    assert result.fallback_used is False
+    assert result.suggested_action is None
+    assert result.suggested_amount is None
+
+
+@pytest.mark.asyncio
+async def test_codex_app_server_provider_reviews_human_action_with_retry() -> None:
+    class FakeCodexClient:
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def complete(
+            self,
+            *,
+            prompt,
+            model,
+            output_schema,
+            thread_key,
+            timeout,
+        ):
+            self.calls.append(
+                {
+                    "prompt": prompt,
+                    "model": model,
+                    "output_schema": output_schema,
+                    "thread_key": thread_key,
+                    "timeout": timeout,
+                }
+            )
+            if len(self.calls) == 1:
+                return "not json"
+            return (
+                '{"score":82,"label":"可接受","reasoning":"跟注价格可接受，'
+                '但后续需要控制底池。","suggested_action":"call",'
+                '"suggested_amount":10}'
+            )
+
+    engine, state = preflop_facing_bet_state()
+    seat = state.current_actor_seat
+    legal_actions = engine.legal_actions(state, seat)
+    call = next(action for action in legal_actions if action.type is ActionType.CALL)
+    client = FakeCodexClient()
+    provider = CodexAppServerProvider(
+        model="gpt-5.5",
+        timeout=30,
+        client=client,
+    )
+
+    result = await provider.review_human_action(
+        state,
+        seat,
+        legal_actions,
+        ActionType.CALL,
+        call.min_amount,
+    )
+
+    assert result.score == 82
+    assert result.label == "可接受"
+    assert result.suggested_action is ActionType.CALL
+    assert result.suggested_amount == 10
+    assert result.provider == "codex_app"
+    assert result.model == "gpt-5.5"
+    assert len(client.calls) == 2
+    assert client.calls[0]["output_schema"]["required"] == [
+        "score",
+        "label",
+        "reasoning",
+        "suggested_action",
+        "suggested_amount",
+    ]
+    assert "上一轮返回无效" in client.calls[1]["prompt"]
 
 
 @pytest.mark.asyncio

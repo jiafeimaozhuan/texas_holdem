@@ -5,7 +5,11 @@ from dataclasses import dataclass, field
 from itertools import cycle
 
 from texas_holdem_trainer.ai.profiles import BotProfile, BotStyle
-from texas_holdem_trainer.ai.providers import DecisionResult, HeuristicProvider
+from texas_holdem_trainer.ai.providers import (
+    DecisionResult,
+    HeuristicProvider,
+    HumanReviewResult,
+)
 from texas_holdem_trainer.ai.service import AIService
 from texas_holdem_trainer.api.schemas import (
     CardView,
@@ -13,6 +17,7 @@ from texas_holdem_trainer.api.schemas import (
     CreateTableRequest,
     HistoryEventView,
     HistoryResponse,
+    HumanReviewEventView,
     LegalActionView,
     PlayerView,
     SubmitActionRequest,
@@ -38,6 +43,7 @@ class TableSession:
     state: GameState
     profiles: dict[int, BotProfile]
     coach_events: list[CoachEventView] = field(default_factory=list)
+    human_review_events: list[HumanReviewEventView] = field(default_factory=list)
     subscribers: set[asyncio.Queue[TableStateResponse]] = field(default_factory=set)
 
 
@@ -92,6 +98,7 @@ class TableManager:
         session = self._session(table_id)
         self.engine.start_hand(session.state)
         session.coach_events.clear()
+        session.human_review_events.clear()
         await self._advance_ai_turns(session)
         state = self._state_response(session)
         await self.broadcast(table_id, state)
@@ -104,6 +111,8 @@ class TableManager:
         self,
         table_id: str,
         request: SubmitActionRequest,
+        *,
+        advance_ai: bool = True,
     ) -> TableStateResponse:
         session = self._session(table_id)
         state = session.state
@@ -113,8 +122,30 @@ class TableManager:
 
         legal_actions = self.engine.legal_actions(state, human_seat)
         self._ensure_legal_request(request.action, request.amount, legal_actions)
+        review = await self.ai_service.review_human_action(
+            state,
+            human_seat,
+            legal_actions,
+            request.action,
+            request.amount,
+        )
+        review_event = self._human_review_event(
+            state,
+            human_seat,
+            request.action,
+            request.amount,
+            review,
+        )
         self.engine.apply_action(state, human_seat, request.action, request.amount)
-        await self.broadcast(table_id)
+        session.human_review_events.append(review_event)
+        response = self._state_response(session)
+        await self.broadcast(table_id, response)
+        if not advance_ai:
+            return response
+        return await self.advance_ai_turns(table_id)
+
+    async def advance_ai_turns(self, table_id: str) -> TableStateResponse:
+        session = self._session(table_id)
         await self._advance_ai_turns(session)
         response = self._state_response(session)
         await self.broadcast(table_id, response)
@@ -229,12 +260,17 @@ class TableManager:
             ],
             legal_actions=[_legal_action_view(action) for action in legal_actions],
             coach_events=list(session.coach_events),
+            human_review_events=list(session.human_review_events),
             history_events=self._history_events(session),
             ai_provider_status=self._ai_provider_status(session.profiles),
         )
 
     def _history_events(self, session: TableSession) -> list[HistoryEventView]:
         events = [HistoryEventView(**entry) for entry in session.state.hand_history]
+        events.extend(
+            HistoryEventView(**event.model_dump())
+            for event in session.human_review_events
+        )
         events.extend(
             HistoryEventView(**event.model_dump())
             for event in session.coach_events
@@ -263,6 +299,32 @@ class TableManager:
             source_reasoning=decision.source_reasoning,
             fallback_used=decision.fallback_used,
             fallback_reason=decision.fallback_reason,
+        )
+
+    def _human_review_event(
+        self,
+        state: GameState,
+        seat: int,
+        action: ActionType,
+        amount: int,
+        review: HumanReviewResult,
+    ) -> HumanReviewEventView:
+        return HumanReviewEventView(
+            hand_number=state.hand_number,
+            street=state.street.value,
+            seat=seat,
+            name=state.players[seat].name,
+            action=action,
+            amount=amount,
+            score=review.score,
+            label=review.label,
+            reasoning=review.reasoning,
+            suggested_action=review.suggested_action,
+            suggested_amount=review.suggested_amount,
+            provider=review.provider,
+            model=review.model,
+            fallback_used=review.fallback_used,
+            fallback_reason=review.fallback_reason,
         )
 
     def _session(self, table_id: str) -> TableSession:

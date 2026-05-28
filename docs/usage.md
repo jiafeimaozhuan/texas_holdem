@@ -1,6 +1,6 @@
 # Texas Hold'em Trainer 使用说明
 
-本文档说明如何在本地运行德州扑克训练程序、如何开始一局训练、如何配置 AI 玩家，以及如何查看 AI 决策依据。
+本文档说明如何在本地运行德州扑克训练程序、如何开始一局训练、如何配置 AI 玩家，以及如何查看 AI 决策依据和人类玩家行动复盘。
 
 本项目只用于本地单机训练和复盘，不提供真钱、支付、联网匹配或赌博功能。
 
@@ -70,8 +70,9 @@ VITE_PROXY_TARGET=http://127.0.0.1:8001 npm run dev
 5. 点击 `Start Hand` 开始一手牌。
 6. 轮到人类玩家时，底部 `Actions` 面板会显示后端返回的合法动作。
 7. 点击 `Fold`、`Check`、`Call`、`Bet`、`Raise` 或 `All-in` 完成行动。
-8. AI 行动后，右侧 `Coach` 面板会显示 AI 的动作、下注额、风格、provider/model、置信度和决策依据。
-9. `History` 面板会记录盲注、发牌、行动、街道推进、AI 决策和结算事件。
+8. 你每次行动后，右侧 `Coach` 面板会显示“玩家复盘”，包括评分、评价标签、建议行动和即时反馈。
+9. AI 行动后，右侧 `Coach` 面板会显示 AI 的动作、下注额、风格、provider/model、置信度和决策依据。
+10. `History` 面板会记录盲注、发牌、行动、人类复盘、街道推进、AI 决策和结算事件。
 
 ## 5. 界面说明
 
@@ -113,6 +114,16 @@ Coach 面板展示最近一次 AI 决策：
 
 公开说明不会直接显示其他玩家的隐藏手牌。LLM 原始输出不会直接作为公开说明使用，后端会生成安全的公开说明模板。
 
+Coach 面板也会展示最近一次真人玩家行动复盘：
+
+- 本次行动评分，范围 0-100。
+- 评价标签：优秀、可接受、偏松、偏紧或风险过高。
+- 你的行动和建议行动。
+- 评审 provider 和 model。
+- 面向训练的中文即时反馈。
+
+人类行动复盘使用行动前的可见牌局状态，不会读取对手隐藏手牌。复盘 provider 失败时会回退到本地 heuristic 评审。
+
 ### History
 
 History 面板按时间顺序展示当前手牌事件：
@@ -121,6 +132,7 @@ History 面板按时间顺序展示当前手牌事件：
 - small blind / big blind。
 - hole cards dealt。
 - 玩家行动。
+- Human review。
 - AI decision。
 - street transition。
 - showdown / settlement。
@@ -174,6 +186,26 @@ profiles:
     provider: "openai"
 ```
 
+真人玩家行动复盘由 `reviewer` 配置决定，和各个电脑玩家 profile 独立：
+
+```yaml
+reviewer:
+  provider: "heuristic"
+  # provider: "openai"
+  # provider: "deepseek"
+  # provider: "codex_app"
+```
+
+如果希望用 Codex app-server/native runtime 作为复盘教练：
+
+```yaml
+reviewer:
+  provider: "codex_app"
+  model: "gpt-5.5"
+```
+
+复盘 provider 只负责评价“这次人类行动是否合理”和给出中文反馈；合法动作、下注金额校验、胜负和筹码结算仍由后端代码处理。
+
 也可以设置：
 
 ```text
@@ -222,7 +254,7 @@ profiles:
 - 筹码结算。
 - hand history。
 
-LLM 只负责 AI 玩家“选择哪个后端合法动作”和“为什么这么选”。即使 LLM 给出非法动作，后端也会拒绝并 fallback。
+LLM 只负责 AI 玩家“选择哪个后端合法动作、为什么这么选”，以及对真人玩家已提交行动做训练点评。即使 LLM 给出非法动作或非法复盘结构，后端也会拒绝并 fallback。
 
 ## 9. 验证命令
 
@@ -247,7 +279,8 @@ npm run build
 4. 提交一个动作。
 5. 确认 AI 行动继续推进。
 6. 确认 Coach 展示 AI reasoning。
-7. 确认 History 事件增加。
+7. 确认 Coach 展示玩家复盘评分和中文反馈。
+8. 确认 History 事件增加。
 
 ## 10. 常见问题
 

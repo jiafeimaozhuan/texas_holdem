@@ -8,8 +8,8 @@ This project is local-only training software. It does not support real money, pa
 
 - One human player and configurable AI opponents.
 - Deterministic backend rule engine for shuffling, dealing, blinds, legal actions, betting rounds, showdown, settlement, and hand history.
-- AI decision layer with local heuristic fallback and OpenAI-compatible LLM provider support.
-- React/Vite frontend showing the table, stacks, bets, pot, board, hero cards, legal actions, hand history, and AI reasoning.
+- AI decision layer with local heuristic fallback, OpenAI-compatible LLM provider support, and an optional human-action reviewer.
+- React/Vite frontend showing the table, stacks, bets, pot, board, hero cards, legal actions, hand history, AI reasoning, and human decision feedback.
 - MVP all-in support is intentionally limited; full side-pot handling is a follow-up milestone.
 
 ## Setup
@@ -72,7 +72,7 @@ AI_DEFAULT_PROVIDER=heuristic
 
 Then copy `config/ai_players.example.yaml` to `config/ai_players.yaml` and set a bot profile provider to `openai` or `deepseek`, or set `AI_DEFAULT_PROVIDER=openai` to use that configured provider for styles without an explicit profile override. Providers without an API key are skipped and those bots fall back to heuristic play.
 
-LLMs only choose an AI player's action and public explanation. Legal actions, winners, chip movement, and all poker rules remain enforced by backend code.
+LLMs only choose an AI player's action, explain it, or review a human player's submitted action. Legal actions, winners, chip movement, and all poker rules remain enforced by backend code.
 
 ## Verification
 
@@ -95,8 +95,9 @@ Manual smoke test:
 2. Start a hand.
 3. Confirm human legal actions are visible only on the human turn.
 4. Submit an action.
-5. Confirm AI actions appear and the coach panel shows reasoning.
-6. Confirm hand history updates as the hand progresses.
+5. Confirm the coach panel shows human decision feedback.
+6. Confirm AI actions appear and the coach panel shows reasoning.
+7. Confirm hand history updates as the hand progresses.
 
 ## Development Notes
 

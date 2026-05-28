@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   connectTableSocket,
   createTable,
+  getTable,
   startHand,
   submitAction,
   updateBots,
@@ -144,6 +145,14 @@ function App() {
   const canStartHand = Boolean(
     state && (state.street === "waiting" || state.street === "complete"),
   );
+  const waitingOnAi = Boolean(
+    state &&
+      state.current_actor_seat != null &&
+      state.players.some(
+        (player) =>
+          player.seat === state.current_actor_seat && !player.is_human,
+      ),
+  );
 
   useEffect(() => {
     if (!state?.table_id) {
@@ -191,6 +200,37 @@ function App() {
       socket?.close();
     };
   }, [state?.table_id]);
+
+  useEffect(() => {
+    if (!state?.table_id || !waitingOnAi) {
+      return;
+    }
+
+    let cancelled = false;
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const nextState = await getTable(state.table_id);
+        if (!cancelled) {
+          setState((currentState) => mergeTableState(currentState, nextState));
+        }
+      } catch {
+        // WebSocket remains the primary channel; polling is only a missed-update fallback.
+      }
+    }, 1500);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    state?.table_id,
+    state?.hand_number,
+    state?.street,
+    state?.current_actor_seat,
+    state?.coach_events.length,
+    state?.human_review_events.length,
+    waitingOnAi,
+  ]);
 
   async function handleCreateTable() {
     const request = normalizeRequest(tableConfig);
@@ -316,6 +356,7 @@ function App() {
         <aside className="side-column" aria-label="训练面板">
           <CoachPanel
             events={state?.coach_events ?? []}
+            reviewEvents={state?.human_review_events ?? []}
             selectedSeat={selectedCoachPlayer ? selectedCoachSeat : null}
             selectedPlayerName={selectedCoachPlayer?.name}
             onClearSelection={() => setSelectedCoachSeat(null)}

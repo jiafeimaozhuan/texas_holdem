@@ -9,7 +9,7 @@ from typing import Any, Mapping, Protocol, Sequence
 
 import httpx
 
-from texas_holdem_trainer.ai.profiles import BotProfile
+from texas_holdem_trainer.ai.profiles import BotProfile, BotStyle
 from texas_holdem_trainer.domain.actions import ActionType, LegalAction
 from texas_holdem_trainer.domain.cards import Card
 from texas_holdem_trainer.domain.evaluator import HandCategory, evaluate_best
@@ -35,6 +35,19 @@ class DecisionResult:
     fallback_reason: str | None = None
 
 
+@dataclass(frozen=True)
+class HumanReviewResult:
+    score: int
+    label: str
+    reasoning: str
+    suggested_action: ActionType | None = None
+    suggested_amount: int | None = None
+    provider: str = "heuristic"
+    model: str = "local"
+    fallback_used: bool = False
+    fallback_reason: str | None = None
+
+
 class AIProvider(Protocol):
     async def decide(
         self,
@@ -44,6 +57,17 @@ class AIProvider(Protocol):
         legal_actions: Sequence[LegalAction],
         visible_state: Mapping[str, Any] | None = None,
     ) -> DecisionResult:
+        ...
+
+    async def review_human_action(
+        self,
+        state: GameState,
+        seat: int,
+        legal_actions: Sequence[LegalAction],
+        action: ActionType,
+        amount: int,
+        visible_state: Mapping[str, Any] | None = None,
+    ) -> HumanReviewResult:
         ...
 
 
@@ -156,6 +180,55 @@ class HeuristicProvider:
 
         return _first_legal_decision(legal_by_type, "using first backend legal action")
 
+    async def review_human_action(
+        self,
+        state: GameState,
+        seat: int,
+        legal_actions: Sequence[LegalAction],
+        action: ActionType,
+        amount: int,
+        visible_state: Mapping[str, Any] | None = None,
+    ) -> HumanReviewResult:
+        recommended = await self.decide(
+            state,
+            seat,
+            BotProfile.for_style("human-review", BotStyle.GTO_LEANING),
+            legal_actions,
+            visible_state=visible_state,
+        )
+        same_action = recommended.action is action
+        amount_close = (
+            action in {ActionType.FOLD, ActionType.CHECK}
+            or abs(recommended.amount - amount) <= max(10, int(max(1, recommended.amount) * 0.25))
+        )
+        if same_action and amount_close:
+            score = 88
+            label = "优秀"
+            reasoning = "你的行动接近本地基准建议，下注尺寸也在合理范围内。"
+        elif same_action:
+            score = 74
+            label = "可接受"
+            reasoning = "行动方向合理，但下注尺寸可以再贴近底池压力和最小加注要求。"
+        elif action is ActionType.FOLD and recommended.action in {ActionType.CALL, ActionType.CHECK}:
+            score = 58
+            label = "偏紧"
+            reasoning = "这次弃牌偏保守，本地基准认为继续看牌或跟注仍有可接受价值。"
+        elif action in {ActionType.CALL, ActionType.BET, ActionType.RAISE, ActionType.ALL_IN} and recommended.action is ActionType.FOLD:
+            score = 42
+            label = "风险过高"
+            reasoning = "这次投入偏冒进，本地基准认为当前牌力或价格不足以继续。"
+        else:
+            score = 64
+            label = "可接受"
+            reasoning = "这次行动不算明显错误，但和本地基准建议不同，建议复盘位置、赔率和下注压力。"
+        return HumanReviewResult(
+            score=score,
+            label=label,
+            reasoning=reasoning,
+            suggested_action=recommended.action,
+            suggested_amount=recommended.amount,
+        )
+
 
 class LLMProvider:
     def __init__(
@@ -259,6 +332,77 @@ class LLMProvider:
         except (KeyError, IndexError, TypeError) as exc:
             raise ValueError("LLM response missing message content") from exc
         return self._parse_content(content)
+
+    async def review_human_action(
+        self,
+        state: GameState,
+        seat: int,
+        legal_actions: Sequence[LegalAction],
+        action: ActionType,
+        amount: int,
+        visible_state: Mapping[str, Any] | None = None,
+    ) -> HumanReviewResult:
+        payload = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "Evaluate a human Texas Hold'em action for training. "
+                        "Return strict JSON only. Write reasoning in Chinese. "
+                        "Do not claim hidden opponent cards."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        _human_review_prompt_payload(
+                            visible_state,
+                            legal_actions,
+                            action,
+                            amount,
+                        ),
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                },
+            ],
+            "response_format": {"type": "json_object"},
+        }
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        request_url = f"{self.base_url}/chat/completions"
+        _emit_llm_log(
+            "LLM review request "
+            f"url={request_url} "
+            f"model={payload['model']} "
+            f"payload={json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}"
+        )
+        async with httpx.AsyncClient(
+            timeout=self.timeout,
+            transport=self.transport,
+        ) as client:
+            response = await client.post(
+                request_url,
+                json=payload,
+                headers=headers,
+            )
+            _emit_llm_log(
+                "LLM review response "
+                f"url={request_url} "
+                f"status={response.status_code} "
+                f"body={response.text}"
+            )
+            response.raise_for_status()
+
+        data = response.json()
+        try:
+            content = data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise ValueError("LLM review response missing message content") from exc
+        return _parse_review_json(content, "LLM review response", "llm", self.model)
 
     def _parse_content(self, content: str) -> DecisionResult:
         try:
@@ -371,6 +515,68 @@ class CodexAppServerProvider:
                 )
         if last_error is None:
             raise ValueError("Codex app-server response could not be parsed")
+        raise last_error
+
+    async def review_human_action(
+        self,
+        state: GameState,
+        seat: int,
+        legal_actions: Sequence[LegalAction],
+        action: ActionType,
+        amount: int,
+        visible_state: Mapping[str, Any] | None = None,
+    ) -> HumanReviewResult:
+        model = self.model
+        prompt = _codex_review_prompt(visible_state, legal_actions, action, amount)
+        review_key = (
+            f"review:{state.table_id}:{state.hand_number}:{state.street.value}:"
+            f"{seat}:{len(state.hand_history)}"
+        )
+        last_error: ValueError | None = None
+        for attempt in range(2):
+            thread_key = f"{review_key}:attempt-{attempt + 1}"
+            attempt_prompt = prompt
+            if last_error is not None:
+                attempt_prompt = (
+                    f"{prompt}\n\n上一轮返回无效：{last_error}。"
+                    "请重新返回严格 JSON，且只返回 JSON 对象。"
+                )
+            _emit_llm_log(
+                "Codex app-server review request "
+                f"model={model} "
+                f"thread_key={thread_key} "
+                f"prompt={attempt_prompt}"
+            )
+            content = await self.client.complete(
+                prompt=attempt_prompt,
+                model=model,
+                output_schema=_REVIEW_OUTPUT_SCHEMA,
+                thread_key=thread_key,
+                timeout=self.timeout,
+            )
+            _emit_llm_log(
+                "Codex app-server review response "
+                f"model={model} "
+                f"thread_key={thread_key} "
+                f"body={content}"
+            )
+            try:
+                return _parse_review_json(
+                    content,
+                    "Codex app-server review response",
+                    "codex_app",
+                    model,
+                )
+            except ValueError as exc:
+                last_error = exc
+                logger.warning(
+                    "Codex app-server returned invalid review JSON on attempt %s: %s",
+                    attempt + 1,
+                    content,
+                    exc_info=exc,
+                )
+        if last_error is None:
+            raise ValueError("Codex app-server review response could not be parsed")
         raise last_error
 
 
@@ -652,6 +858,74 @@ _DECISION_OUTPUT_SCHEMA = {
 }
 
 
+_REVIEW_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["score", "label", "reasoning", "suggested_action", "suggested_amount"],
+    "additionalProperties": False,
+    "properties": {
+        "score": {"type": "integer", "minimum": 0, "maximum": 100},
+        "label": {
+            "type": "string",
+            "enum": ["优秀", "可接受", "偏松", "偏紧", "风险过高"],
+        },
+        "reasoning": {"type": "string"},
+        "suggested_action": {
+            "type": ["string", "null"],
+            "enum": ["fold", "check", "call", "bet", "raise", "all_in", None],
+        },
+        "suggested_amount": {"type": ["integer", "null"], "minimum": 0},
+    },
+}
+
+
+def _human_review_prompt_payload(
+    visible_state: Mapping[str, Any] | None,
+    legal_actions: Sequence[LegalAction],
+    action: ActionType,
+    amount: int,
+) -> dict[str, Any]:
+    return {
+        "task": "review_human_action",
+        "visible_state": visible_state,
+        "human_action": {
+            "action": action.value,
+            "amount": amount,
+        },
+        "legal_actions": [
+            {
+                "action": legal.type.value,
+                "min_amount": legal.min_amount,
+                "max_amount": legal.max_amount,
+            }
+            for legal in legal_actions
+        ],
+        "required_json_schema": {
+            "score": "integer 0-100",
+            "label": "优秀|可接受|偏松|偏紧|风险过高",
+            "reasoning": "short Chinese training feedback",
+            "suggested_action": "fold|check|call|bet|raise|all_in|null",
+            "suggested_amount": "integer|null",
+        },
+    }
+
+
+def _codex_review_prompt(
+    visible_state: Mapping[str, Any] | None,
+    legal_actions: Sequence[LegalAction],
+    action: ActionType,
+    amount: int,
+) -> str:
+    payload = _human_review_prompt_payload(visible_state, legal_actions, action, amount)
+    return (
+        "你是德州扑克训练器的人类玩家复盘教练。"
+        "请只根据 visible_state 中人类当时可见的信息评价 human_action。"
+        "不要假设对手底牌。score 为 0 到 100。reasoning 用简短中文。"
+        "如果有更推荐动作，suggested_action 必须来自 legal_actions；否则填 null。"
+        "只返回 JSON，不要 Markdown。\n"
+        f"{json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}"
+    )
+
+
 def _codex_decision_prompt(
     profile: BotProfile,
     visible_state: Mapping[str, Any] | None,
@@ -680,6 +954,64 @@ def _codex_decision_prompt(
         "amount 必须在该动作的 min_amount 和 max_amount 范围内。"
         "reasoning 必须用简短中文解释牌局决策。只返回 JSON，不要 Markdown。\n"
         f"{json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}"
+    )
+
+
+def _parse_review_json(
+    content: str,
+    source: str,
+    provider: str,
+    model: str,
+) -> HumanReviewResult:
+    stripped = content.strip()
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        stripped = "\n".join(lines).strip()
+    try:
+        parsed = json.loads(stripped)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{source} content is not strict JSON") from exc
+
+    required_keys = {"score", "label", "reasoning", "suggested_action", "suggested_amount"}
+    if not isinstance(parsed, dict) or set(parsed) != required_keys:
+        raise ValueError(f"{source} JSON must contain exactly required keys")
+    score = parsed["score"]
+    label = parsed["label"]
+    reasoning = parsed["reasoning"]
+    suggested_action_value = parsed["suggested_action"]
+    suggested_amount = parsed["suggested_amount"]
+    if not isinstance(score, int) or isinstance(score, bool) or not 0 <= score <= 100:
+        raise ValueError(f"{source} score must be an integer between 0 and 100")
+    if label not in {"优秀", "可接受", "偏松", "偏紧", "风险过高"}:
+        raise ValueError(f"{source} label is not supported")
+    if not isinstance(reasoning, str):
+        raise ValueError(f"{source} reasoning must be a string")
+    if suggested_action_value is None:
+        suggested_action = None
+    elif isinstance(suggested_action_value, str):
+        try:
+            suggested_action = ActionType(suggested_action_value)
+        except ValueError as exc:
+            raise ValueError(f"{source} suggested_action is not supported") from exc
+    else:
+        raise ValueError(f"{source} suggested_action must be a string or null")
+    if suggested_amount is not None:
+        if not isinstance(suggested_amount, int) or isinstance(suggested_amount, bool):
+            raise ValueError(f"{source} suggested_amount must be an integer or null")
+        if suggested_amount < 0:
+            raise ValueError(f"{source} suggested_amount must be non-negative")
+    return HumanReviewResult(
+        score=score,
+        label=label,
+        reasoning=reasoning,
+        suggested_action=suggested_action,
+        suggested_amount=suggested_amount,
+        provider=provider,
+        model=model,
     )
 
 

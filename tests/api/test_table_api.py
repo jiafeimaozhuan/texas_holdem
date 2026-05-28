@@ -71,6 +71,7 @@ def test_table_rest_flow_hides_bot_cards_and_records_ai_reasoning() -> None:
     assert "detail" in illegal_response.json()
 
     final_state = state
+    human_review_events = []
     if state["street"] != "complete":
         legal_action = _choose_legal_action(state["legal_actions"])
         action_response = client.post(
@@ -79,9 +80,28 @@ def test_table_rest_flow_hides_bot_cards_and_records_ai_reasoning() -> None:
         )
         assert action_response.status_code == 200
         advanced = action_response.json()
-        assert advanced["current_actor_seat"] in {0, None}
         assert advanced["street"] in {"preflop", "flop", "turn", "river", "complete"}
-        final_state = advanced
+        human_review_events = advanced["human_review_events"]
+        assert human_review_events
+        latest_review = human_review_events[-1]
+        assert latest_review["type"] == "human_review"
+        assert latest_review["seat"] == 0
+        assert latest_review["action"] == legal_action["action"]
+        assert latest_review["score"] >= 0
+        assert latest_review["score"] <= 100
+        assert latest_review["label"] in {
+            "优秀",
+            "可接受",
+            "偏松",
+            "偏紧",
+            "风险过高",
+        }
+        assert latest_review["reasoning"]
+        assert latest_review["provider"] == "heuristic"
+        assert latest_review["model"] == "local"
+        settled_response = client.get(f"/api/table/{table_id}")
+        assert settled_response.status_code == 200
+        final_state = settled_response.json()
 
     coach_events = final_state["coach_events"]
     assert coach_events
@@ -92,7 +112,14 @@ def test_table_rest_flow_hides_bot_cards_and_records_ai_reasoning() -> None:
     assert history_response.status_code == 200
     history = history_response.json()
     ai_events = [event for event in history["events"] if event["type"] == "ai_decision"]
+    review_events = [
+        event for event in history["events"] if event["type"] == "human_review"
+    ]
     assert ai_events
+    if human_review_events:
+        assert review_events
+        assert review_events[-1]["score"] == human_review_events[-1]["score"]
+        assert review_events[-1]["reasoning"]
     assert all(event["provider"] == "heuristic" for event in ai_events)
     assert all(event["model"] == "local" for event in ai_events)
     assert all(event["reasoning"] for event in ai_events)
@@ -141,9 +168,20 @@ def test_human_fold_continues_hand_with_remaining_bots() -> None:
     assert action_response.status_code == 200
     advanced = action_response.json()
     assert advanced["players"][3]["folded"] is True
-    assert advanced["street"] == "complete"
-    assert advanced.get("current_actor_seat") is None
+    assert advanced["human_review_events"]
+    assert advanced["human_review_events"][-1]["type"] == "human_review"
+    assert advanced["human_review_events"][-1]["seat"] == 3
+    assert advanced["human_review_events"][-1]["action"] == "fold"
+    assert advanced["street"] == "preflop"
+    assert advanced.get("current_actor_seat") != 3
     assert advanced["legal_actions"] == []
+
+    settled_response = client.get(f"/api/table/{table_id}")
+    assert settled_response.status_code == 200
+    settled = settled_response.json()
+    assert settled["street"] == "complete"
+    assert settled.get("current_actor_seat") is None
+    assert settled["legal_actions"] == []
 
     history_response = client.get(f"/api/table/{table_id}/history")
     assert history_response.status_code == 200

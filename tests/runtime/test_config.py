@@ -9,6 +9,7 @@ from texas_holdem_trainer.runtime.config import (
     build_default_table_manager,
     build_profile_templates,
     build_providers,
+    build_reviewer_template,
     load_env_file,
 )
 
@@ -113,6 +114,51 @@ def test_codex_app_server_provider_does_not_require_api_key(monkeypatch) -> None
     assert set(providers) == {"heuristic", "codex_app"}
     assert templates[BotStyle.GTO_LEANING].provider == "codex_app"
     assert templates[BotStyle.GTO_LEANING].model == "gpt-5.5"
+
+
+def test_reviewer_template_uses_configured_available_provider(monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    config = {
+        "providers": {
+            "codex_app": {
+                "runtime": "codex_app_server",
+                "command": "codex",
+                "model": "gpt-5.5",
+                "timeout_seconds": 60,
+            }
+        },
+        "reviewer": {
+            "provider": "codex_app",
+        },
+    }
+
+    providers = build_providers(config["providers"])
+    template = build_reviewer_template(config, providers)
+
+    assert template.provider == "codex_app"
+    assert template.model == "gpt-5.5"
+
+
+def test_reviewer_template_falls_back_when_provider_is_unavailable(monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    config = {
+        "providers": {
+            "openai": {
+                "base_url": "https://api.openai.test/v1",
+                "api_key_env": "OPENAI_API_KEY",
+                "model": "test-gpt",
+            }
+        },
+        "reviewer": {
+            "provider": "openai",
+        },
+    }
+
+    providers = build_providers(config["providers"])
+    template = build_reviewer_template(config, providers)
+
+    assert template.provider == "heuristic"
+    assert template.model is None
 
 
 def test_load_env_file_does_not_override_existing_environment(

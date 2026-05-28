@@ -6,10 +6,11 @@ import {
   streetLabel,
   styleLabel,
 } from "../labels";
-import type { CoachEventView } from "../types";
+import type { CoachEventView, HumanReviewEventView } from "../types";
 
 interface CoachPanelProps {
   events: CoachEventView[];
+  reviewEvents: HumanReviewEventView[];
   selectedSeat: number | null;
   selectedPlayerName?: string | null;
   onClearSelection: () => void;
@@ -32,6 +33,7 @@ function reasoningTitle(event: CoachEventView): string {
 
 export function CoachPanel({
   events,
+  reviewEvents,
   selectedSeat,
   selectedPlayerName,
   onClearSelection,
@@ -41,6 +43,7 @@ export function CoachPanel({
       ? events[events.length - 1]
       : [...events].reverse().find((event) => event.seat === selectedSeat);
   const isFiltered = selectedSeat != null;
+  const latestReview = reviewEvents[reviewEvents.length - 1];
 
   return (
     <section className="panel coach-panel" aria-label="教练面板">
@@ -113,6 +116,56 @@ export function CoachPanel({
           {isFiltered ? "该玩家暂无决策记录" : "暂无电脑决策"}
         </span>
       )}
+      <div className="coach-content coach-content--review">
+        <div className="coach-action">
+          <span>玩家复盘</span>
+          <strong>
+            {latestReview
+              ? `${latestReview.score} 分 · ${latestReview.label}`
+              : "暂无评价"}
+          </strong>
+        </div>
+        {latestReview ? (
+          <>
+            <dl className="coach-metrics">
+              <div>
+                <dt>你的行动</dt>
+                <dd>{actionWithAmount(latestReview.action, latestReview.amount)}</dd>
+              </div>
+              <div>
+                <dt>建议行动</dt>
+                <dd>
+                  {latestReview.suggested_action
+                    ? actionWithAmount(
+                        latestReview.suggested_action,
+                        latestReview.suggested_amount ?? 0,
+                      )
+                    : "无需调整"}
+                </dd>
+              </div>
+              <div>
+                <dt>评审源</dt>
+                <dd>{providerLabel(latestReview.provider)}</dd>
+              </div>
+              <div>
+                <dt>模型</dt>
+                <dd>{modelLabel(latestReview.model)}</dd>
+              </div>
+            </dl>
+            <div className="coach-reasoning-block">
+              <span>即时评价</span>
+              <p className="coach-reasoning">{latestReview.reasoning}</p>
+            </div>
+            {latestReview.fallback_used ? (
+              <p className="fallback-reason">
+                {fallbackReasonLabel(latestReview.fallback_reason)}
+              </p>
+            ) : null}
+          </>
+        ) : (
+          <span className="muted-state">你行动后会显示即时复盘</span>
+        )}
+      </div>
     </section>
   );
 }

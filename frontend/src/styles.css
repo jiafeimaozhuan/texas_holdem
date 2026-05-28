@@ -528,6 +528,10 @@ select {
   padding: 14px;
 }
 
+.coach-content--review {
+  border-top: 1px solid #e2e8ed;
+}
+
 .coach-action {
   display: grid;
   gap: 3px;

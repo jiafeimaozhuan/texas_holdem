@@ -71,6 +71,25 @@ class CoachEventView(BaseModel):
     fallback_reason: str | None = None
 
 
+class HumanReviewEventView(BaseModel):
+    type: Literal["human_review"] = "human_review"
+    hand_number: int
+    street: str
+    seat: int
+    name: str
+    action: ActionType
+    amount: int
+    score: int
+    label: str
+    reasoning: str
+    suggested_action: ActionType | None = None
+    suggested_amount: int | None = None
+    provider: str
+    model: str
+    fallback_used: bool
+    fallback_reason: str | None = None
+
+
 class HistoryEventView(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -99,6 +118,10 @@ class HistoryEventView(BaseModel):
     source_reasoning: str | None = None
     fallback_used: bool | None = None
     fallback_reason: str | None = None
+    score: int | None = None
+    label: str | None = None
+    suggested_action: str | None = None
+    suggested_amount: int | None = None
 
 
 class TableStateResponse(BaseModel):
@@ -117,6 +140,7 @@ class TableStateResponse(BaseModel):
     players: list[PlayerView]
     legal_actions: list[LegalActionView]
     coach_events: list[CoachEventView]
+    human_review_events: list[HumanReviewEventView]
     history_events: list[HistoryEventView]
     ai_provider_status: str
 

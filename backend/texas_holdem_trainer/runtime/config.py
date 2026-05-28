@@ -28,12 +28,15 @@ def build_default_table_manager() -> TableManager:
     config = load_ai_config()
     providers = build_providers(config.get("providers", {}))
     profile_templates = build_profile_templates(config, providers)
+    reviewer_template = build_reviewer_template(config, providers)
     heuristic = providers["heuristic"]
     return TableManager(
         ai_service=AIService(
             primary_provider=heuristic,
             fallback_provider=heuristic,
             providers=providers,
+            reviewer_provider=reviewer_template.provider,
+            reviewer_model=reviewer_template.model,
         ),
         bot_provider_templates=profile_templates,
     )
@@ -149,6 +152,22 @@ def build_profile_templates(
         templates[style] = BotProviderTemplate(provider=provider, model=model)
 
     return templates
+
+
+def build_reviewer_template(
+    config: dict[str, Any],
+    providers: dict[str, AIProvider],
+) -> BotProviderTemplate:
+    raw_reviewer = config.get("reviewer")
+    if not isinstance(raw_reviewer, dict):
+        return BotProviderTemplate()
+    provider = raw_reviewer.get("provider", "heuristic")
+    if not isinstance(provider, str) or provider not in providers:
+        provider = "heuristic"
+    model = raw_reviewer.get("model")
+    if not isinstance(model, str):
+        model = _model_for_provider(provider, config)
+    return BotProviderTemplate(provider=provider, model=model)
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:

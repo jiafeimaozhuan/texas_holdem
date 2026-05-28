@@ -76,6 +76,7 @@ export function providerLabel(provider?: string | null): string {
     heuristic: "本地规则",
     openai: "OpenAI",
     deepseek: "DeepSeek",
+    codex_app: "Codex App",
   };
   return provider ? labels[provider] ?? provider : "未配置";
 }
@@ -109,6 +110,9 @@ export function fallbackReasonLabel(reason?: string | null): string {
   }
   if (reason === "illegal_primary_action") {
     return "主决策源返回了非法行动";
+  }
+  if (reason === "invalid_review_result") {
+    return "主评审源返回了非法复盘结果";
   }
   return reason;
 }

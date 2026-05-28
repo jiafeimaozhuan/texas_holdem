@@ -1,4 +1,12 @@
-import { actionLabel, blindLabel, seatLabel, streetLabel, styleLabel } from "../labels";
+import {
+  actionLabel,
+  actionWithAmount,
+  blindLabel,
+  providerLabel,
+  seatLabel,
+  streetLabel,
+  styleLabel,
+} from "../labels";
 import type { HistoryEventView } from "../types";
 
 interface HandHistoryPanelProps {
@@ -41,6 +49,8 @@ function eventTitle(event: HistoryEventView): string {
       return `${formatWinners(event.winners)} 赢得 ${event.pot ?? 0}`;
     case "ai_decision":
       return `${formatSeat(event.seat, event.name)} 选择${formatAction(event.action)}`;
+    case "human_review":
+      return `玩家复盘：${event.score ?? "-"} 分 · ${event.label ?? "待评价"}`;
     default:
       return event.type.split("_").join(" ");
   }
@@ -66,6 +76,15 @@ function eventDetail(event: HistoryEventView): string {
       const confidence =
         typeof event.confidence === "number" ? `${Math.round(event.confidence * 100)}%` : "n/a";
       return `${styleLabel(event.style)} / ${confidence}`;
+    }
+    case "human_review": {
+      const action = event.action
+        ? actionWithAmount(event.action, event.amount ?? 0)
+        : "行动";
+      const suggestion = event.suggested_action
+        ? `建议 ${actionWithAmount(event.suggested_action, event.suggested_amount ?? 0)}`
+        : "无需调整";
+      return `${action} / ${suggestion} / ${providerLabel(event.provider)}`;
     }
     default:
       return event.street ? streetLabel(event.street) : "已记录";

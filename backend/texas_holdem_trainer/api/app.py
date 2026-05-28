@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import (
+    BackgroundTasks,
+    FastAPI,
+    HTTPException,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 
 from texas_holdem_trainer.api.schemas import (
     CreateTableRequest,
@@ -70,9 +77,16 @@ def get_table(table_id: str) -> TableStateResponse:
 async def submit_action(
     table_id: str,
     request: SubmitActionRequest,
+    background_tasks: BackgroundTasks,
 ) -> TableStateResponse:
     try:
-        return await table_manager.submit_human_action(table_id, request)
+        state = await table_manager.submit_human_action(
+            table_id,
+            request,
+            advance_ai=False,
+        )
+        background_tasks.add_task(table_manager.advance_ai_turns, table_id)
+        return state
     except TableNotFoundError as exc:
         raise HTTPException(status_code=404, detail="table not found") from exc
     except IllegalActionError as exc:
