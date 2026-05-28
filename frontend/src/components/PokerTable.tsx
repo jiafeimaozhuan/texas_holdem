@@ -11,6 +11,69 @@ interface PokerTableProps {
   onSelectCoachSeat: (seat: number) => void;
 }
 
+const seatLayouts: Record<number, Array<[number, number]>> = {
+  2: [
+    [50, 86],
+    [50, 14],
+  ],
+  3: [
+    [50, 86],
+    [12, 50],
+    [88, 50],
+  ],
+  4: [
+    [50, 86],
+    [12, 50],
+    [50, 14],
+    [88, 50],
+  ],
+  5: [
+    [50, 86],
+    [12, 63],
+    [34, 14],
+    [66, 14],
+    [88, 63],
+  ],
+  6: [
+    [50, 86],
+    [12, 72],
+    [12, 28],
+    [50, 14],
+    [88, 28],
+    [88, 72],
+  ],
+  7: [
+    [34, 89],
+    [66, 89],
+    [12, 63],
+    [12, 37],
+    [50, 11],
+    [88, 37],
+    [88, 63],
+  ],
+  8: [
+    [34, 89],
+    [66, 89],
+    [12, 63],
+    [12, 37],
+    [34, 11],
+    [66, 11],
+    [88, 37],
+    [88, 63],
+  ],
+  9: [
+    [19, 89],
+    [50, 89],
+    [81, 89],
+    [12, 63],
+    [12, 37],
+    [34, 11],
+    [66, 11],
+    [88, 37],
+    [88, 63],
+  ],
+};
+
 function blindMap(state: TableStateResponse): Record<number, string> {
   return state.history_events.reduce<Record<number, string>>((accumulator, event) => {
     if (event.type === "blind" && typeof event.seat === "number" && event.blind) {
@@ -21,13 +84,18 @@ function blindMap(state: TableStateResponse): Record<number, string> {
 }
 
 function seatPosition(index: number, total: number): CSSProperties {
-  const angle = Math.PI / 2 + (index / total) * Math.PI * 2;
-  const x = 50 + Math.cos(angle) * 45;
-  const y = 50 + Math.sin(angle) * 42;
+  const layout = seatLayouts[total];
+  const [x, y] = layout?.[index] ?? [50, 50];
 
   return {
     "--seat-x": `${x}%`,
     "--seat-y": `${y}%`,
+  } as CSSProperties;
+}
+
+function tableStageStyle(total: number): CSSProperties {
+  return {
+    "--felt-height": total >= 7 ? "1000px" : "720px",
   } as CSSProperties;
 }
 
@@ -53,7 +121,11 @@ export function PokerTable({
   const players = [...state.players].sort((left, right) => left.seat - right.seat);
 
   return (
-    <section className="table-stage" aria-label="牌桌">
+    <section
+      className="table-stage"
+      aria-label="牌桌"
+      style={tableStageStyle(players.length)}
+    >
       <div className="felt-table">
         <div className="table-center">
           <div className="pot-stack">

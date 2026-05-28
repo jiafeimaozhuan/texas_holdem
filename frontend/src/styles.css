@@ -213,7 +213,8 @@ select {
 }
 
 .table-stage {
-  min-height: 650px;
+  --felt-height: 720px;
+  min-height: calc(var(--felt-height) + 30px);
   overflow: hidden;
   padding: 14px;
 }
@@ -223,7 +224,7 @@ select {
   border: 10px solid #5b4737;
   border-radius: 48%;
   box-shadow: inset 0 0 0 2px #8c735a;
-  height: 620px;
+  height: var(--felt-height);
   position: relative;
 }
 

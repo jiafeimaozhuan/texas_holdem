@@ -88,6 +88,33 @@ def test_missing_llm_key_falls_back_to_heuristic_provider(monkeypatch) -> None:
     assert templates[BotStyle.TIGHT_AGGRESSIVE].provider == "heuristic"
 
 
+def test_codex_app_server_provider_does_not_require_api_key(monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    config = {
+        "providers": {
+            "codex_app": {
+                "runtime": "codex_app_server",
+                "command": "codex",
+                "model": "gpt-5.5",
+                "timeout_seconds": 60,
+            }
+        },
+        "profiles": [
+            {
+                "style": "gto_leaning",
+                "provider": "codex_app",
+            }
+        ],
+    }
+
+    providers = build_providers(config["providers"])
+    templates = build_profile_templates(config, providers)
+
+    assert set(providers) == {"heuristic", "codex_app"}
+    assert templates[BotStyle.GTO_LEANING].provider == "codex_app"
+    assert templates[BotStyle.GTO_LEANING].model == "gpt-5.5"
+
+
 def test_load_env_file_does_not_override_existing_environment(
     tmp_path: Path,
     monkeypatch,

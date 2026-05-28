@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import replace
 from typing import Any, Mapping, Sequence
 
@@ -31,6 +32,8 @@ _SAFE_HAND_RANK_CATEGORIES = frozenset(
     },
 )
 
+logger = logging.getLogger(__name__)
+
 
 class AIService:
     def __init__(
@@ -61,13 +64,21 @@ class AIService:
                 visible_state=visible_state,
             )
         except Exception as exc:
+            logger.exception(
+                "AI primary provider failed table=%s hand=%s seat=%s provider=%s profile=%s",
+                state.table_id,
+                state.hand_number,
+                seat,
+                profile.provider,
+                profile.name,
+            )
             return await self._fallback(
                 state,
                 seat,
                 profile,
                 legal_actions,
                 visible_state,
-                f"primary_provider_error: {type(exc).__name__}",
+                _provider_error_reason(exc),
             )
 
         if not isinstance(result, DecisionResult) or not self.is_legal_result(
@@ -260,6 +271,14 @@ def _card_to_string(card: Card) -> str:
         14: "A",
     }
     return f"{rank_names[int(card.rank)]}{card.suit.value}"
+
+
+def _provider_error_reason(exc: Exception) -> str:
+    message = str(exc).strip().replace("\n", " ")
+    if len(message) > 180:
+        message = f"{message[:177]}..."
+    suffix = f": {message}" if message else ""
+    return f"primary_provider_error: {type(exc).__name__}{suffix}"
 
 
 def _describe_action(result: DecisionResult) -> str:

@@ -184,6 +184,28 @@ AI_DEFAULT_PROVIDER=openai
 
 如果 provider 缺少 API key、超时、返回非法 JSON、返回非法动作或金额，后端会自动 fallback 到 heuristic provider，并在 Coach/History 中记录 fallback 状态。
 
+### Codex app-server provider
+
+如果你本机已登录 Codex，并希望通过 Codex app-server/native runtime 使用 `gpt-5.5`，可以使用 `codex_app` provider。它不需要把 OpenAI API key 配给本应用，但后端进程必须能访问当前用户的 Codex 登录状态。
+
+`config/ai_players.yaml` 示例：
+
+```yaml
+providers:
+  codex_app:
+    runtime: "codex_app_server"
+    command: "codex"
+    model: "gpt-5.5"
+    timeout_seconds: 60
+
+profiles:
+  - name: "GTO Bot"
+    style: "gto_leaning"
+    provider: "codex_app"
+```
+
+后端会为 `codex_app` 启动一个本地 `codex app-server --listen stdio://` 子进程，并通过 JSON-RPC 发送德州扑克可见状态。当前 Codex app-server 的 ephemeral thread 不支持回读完整 turn items，因此训练器会使用非 ephemeral thread，本地 Codex 历史中可能出现训练决策记录。Codex 仍然只负责返回动作建议和中文理由；后端继续校验合法动作、金额和 fallback。
+
 ## 8. 规则边界
 
 德州扑克核心规则由代码实现，不依赖 LLM 判断：

@@ -7,7 +7,12 @@ from typing import Any
 import yaml
 
 from texas_holdem_trainer.ai.profiles import BotStyle
-from texas_holdem_trainer.ai.providers import AIProvider, HeuristicProvider, LLMProvider
+from texas_holdem_trainer.ai.providers import (
+    AIProvider,
+    CodexAppServerProvider,
+    HeuristicProvider,
+    LLMProvider,
+)
 from texas_holdem_trainer.ai.service import AIService
 from texas_holdem_trainer.runtime.table_manager import BotProviderTemplate, TableManager
 
@@ -70,6 +75,25 @@ def build_providers(raw_providers: Any) -> dict[str, AIProvider]:
         if not isinstance(name, str) or name == "heuristic":
             continue
         if not isinstance(raw_config, dict):
+            continue
+
+        if raw_config.get("runtime") == "codex_app_server":
+            model = raw_config.get("model")
+            if not isinstance(model, str):
+                continue
+            command = raw_config.get("command", "codex")
+            if not isinstance(command, str):
+                command = "codex"
+            provider_timeout = raw_config.get("timeout_seconds", timeout)
+            try:
+                provider_timeout = float(provider_timeout)
+            except (TypeError, ValueError):
+                provider_timeout = timeout
+            providers[name] = CodexAppServerProvider(
+                command=command,
+                model=model,
+                timeout=provider_timeout,
+            )
             continue
 
         api_key_env = raw_config.get("api_key_env")

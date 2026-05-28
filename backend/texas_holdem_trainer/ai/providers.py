@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import shlex
 from dataclasses import dataclass
 from typing import Any, Mapping, Protocol, Sequence
 
@@ -299,6 +301,478 @@ class LLMProvider:
             confidence=float(confidence),
             reasoning=reasoning,
         )
+
+
+class CodexAppServerProvider:
+    def __init__(
+        self,
+        *,
+        model: str = "gpt-5.5",
+        command: str = "codex",
+        timeout: float = 60.0,
+        cwd: str | None = None,
+        client: "CodexAppServerClient | None" = None,
+    ) -> None:
+        self.model = model
+        self.timeout = timeout
+        self.client = client or CodexAppServerClient(command=command, cwd=cwd)
+
+    async def decide(
+        self,
+        state: GameState,
+        seat: int,
+        profile: BotProfile,
+        legal_actions: Sequence[LegalAction],
+        visible_state: Mapping[str, Any] | None = None,
+    ) -> DecisionResult:
+        prompt = _codex_decision_prompt(profile, visible_state, legal_actions)
+        model = profile.model or self.model
+        decision_key = (
+            f"{state.table_id}:{state.hand_number}:{state.street.value}:"
+            f"{seat}:{len(state.hand_history)}"
+        )
+        last_error: ValueError | None = None
+        for attempt in range(2):
+            thread_key = f"{decision_key}:attempt-{attempt + 1}"
+            attempt_prompt = prompt
+            if last_error is not None:
+                attempt_prompt = (
+                    f"{prompt}\n\n上一轮返回无效：{last_error}。"
+                    "请重新返回严格 JSON，且只返回 JSON 对象。"
+                )
+            _emit_llm_log(
+                "Codex app-server request "
+                f"model={model} "
+                f"thread_key={thread_key} "
+                f"prompt={attempt_prompt}"
+            )
+            content = await self.client.complete(
+                prompt=attempt_prompt,
+                model=model,
+                output_schema=_DECISION_OUTPUT_SCHEMA,
+                thread_key=thread_key,
+                timeout=self.timeout,
+            )
+            _emit_llm_log(
+                "Codex app-server response "
+                f"model={model} "
+                f"thread_key={thread_key} "
+                f"body={content}"
+            )
+            try:
+                return _parse_decision_json(content, "Codex app-server response")
+            except ValueError as exc:
+                last_error = exc
+                logger.warning(
+                    "Codex app-server returned invalid decision JSON on attempt %s: %s",
+                    attempt + 1,
+                    content,
+                    exc_info=exc,
+                )
+        if last_error is None:
+            raise ValueError("Codex app-server response could not be parsed")
+        raise last_error
+
+
+class CodexAppServerClient:
+    def __init__(
+        self,
+        *,
+        command: str = "codex",
+        cwd: str | None = None,
+    ) -> None:
+        self.command = command
+        self.cwd = cwd
+        self.process: asyncio.subprocess.Process | None = None
+        self._next_id = 1
+        self._lock = asyncio.Lock()
+        self._thread_ids: dict[str, str] = {}
+        self._stderr_task: asyncio.Task[None] | None = None
+
+    async def complete(
+        self,
+        *,
+        prompt: str,
+        model: str,
+        output_schema: dict,
+        thread_key: str,
+        timeout: float,
+    ) -> str:
+        async with self._lock:
+            return await asyncio.wait_for(
+                self._complete_locked(
+                    prompt=prompt,
+                    model=model,
+                    output_schema=output_schema,
+                    thread_key=thread_key,
+                ),
+                timeout=timeout,
+            )
+
+    async def _complete_locked(
+        self,
+        *,
+        prompt: str,
+        model: str,
+        output_schema: dict,
+        thread_key: str,
+    ) -> str:
+        await self._ensure_process()
+        thread_id = await self._thread_id(thread_key, model)
+        return await self._start_turn_and_wait(
+            thread_id=thread_id,
+            model=model,
+            prompt=prompt,
+            output_schema=output_schema,
+        )
+
+    async def _start_turn_and_wait(
+        self,
+        *,
+        thread_id: str,
+        model: str,
+        prompt: str,
+        output_schema: dict,
+    ) -> str:
+        request_id = self._next_id
+        self._next_id += 1
+        await self._write_message(
+            {
+                "id": request_id,
+                "method": "turn/start",
+                "params": {
+                    "threadId": thread_id,
+                    "model": model,
+                    "input": [{"type": "text", "text": prompt}],
+                    "outputSchema": output_schema,
+                    "approvalPolicy": "never",
+                    "environments": [],
+                },
+            }
+        )
+
+        while True:
+            message = await self._read_message()
+            if message.get("id") == request_id:
+                if "error" in message:
+                    raise ValueError(f"Codex app-server turn/start failed: {message['error']}")
+                result = message.get("result")
+                text = _extract_final_message(
+                    result.get("turn") if isinstance(result, dict) else None
+                )
+                if text:
+                    return text
+                continue
+            if message.get("method") == "turn/completed":
+                params = message.get("params")
+                if isinstance(params, dict) and params.get("threadId") == thread_id:
+                    turn = params.get("turn")
+                    _raise_if_turn_failed(turn)
+                    text = _extract_final_message(turn)
+                    if text:
+                        return text
+                    turn_id = turn.get("id") if isinstance(turn, dict) else None
+                    if isinstance(turn_id, str):
+                        text = await self._read_completed_turn_message(
+                            thread_id=thread_id,
+                            turn_id=turn_id,
+                        )
+                        if text:
+                            return text
+                    raise ValueError("Codex app-server turn completed without final message")
+
+    async def _read_completed_turn_message(self, *, thread_id: str, turn_id: str) -> str | None:
+        for attempt in range(5):
+            response = await self._request(
+                "thread/read",
+                {
+                    "threadId": thread_id,
+                    "includeTurns": True,
+                },
+            )
+            if isinstance(response, dict):
+                thread = response.get("thread")
+                if isinstance(thread, dict):
+                    turns = thread.get("turns")
+                    if isinstance(turns, list):
+                        for turn in reversed(turns):
+                            if isinstance(turn, dict) and turn.get("id") == turn_id:
+                                _raise_if_turn_failed(turn)
+                                text = _extract_final_message(turn)
+                                if text:
+                                    return text
+            if attempt < 4:
+                await asyncio.sleep(0.2)
+        return None
+
+    async def _thread_id(self, thread_key: str, model: str) -> str:
+        thread_id = self._thread_ids.get(thread_key)
+        if thread_id:
+            return thread_id
+        response = await self._request(
+            "thread/start",
+            {
+                "model": model,
+                "ephemeral": False,
+                "approvalPolicy": "never",
+                "sandbox": "read-only",
+                "environments": [],
+                "baseInstructions": (
+                    "You are a Texas Hold'em decision engine. Do not use tools. "
+                    "Return only the requested JSON object."
+                ),
+                "cwd": self.cwd,
+            },
+        )
+        if not isinstance(response, dict):
+            raise ValueError("Codex app-server thread/start returned malformed result")
+        thread = response.get("thread")
+        if not isinstance(thread, dict) or not isinstance(thread.get("id"), str):
+            raise ValueError("Codex app-server thread/start missing thread id")
+        thread_id = thread["id"]
+        self._thread_ids[thread_key] = thread_id
+        return thread_id
+
+    async def _ensure_process(self) -> None:
+        if self.process and self.process.returncode is None:
+            return
+        args = [*shlex.split(self.command), "app-server", "--listen", "stdio://"]
+        self.process = await asyncio.create_subprocess_exec(
+            *args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        self._stderr_task = asyncio.create_task(self._drain_stderr())
+        await self._request(
+            "initialize",
+            {
+                "clientInfo": {
+                    "name": "texas-holdem-trainer",
+                    "version": "0.1",
+                },
+                "capabilities": {
+                    "experimentalApi": True,
+                },
+            },
+        )
+        await self._notify("initialized")
+
+    async def _drain_stderr(self) -> None:
+        process = self.process
+        if process is None or process.stderr is None:
+            return
+        while True:
+            line = await process.stderr.readline()
+            if not line:
+                return
+            logger.debug("Codex app-server stderr: %s", line.decode(errors="replace").rstrip())
+
+    async def _request(self, method: str, params: Mapping[str, Any]) -> Any:
+        request_id = self._next_id
+        self._next_id += 1
+        await self._write_message(
+            {
+                "id": request_id,
+                "method": method,
+                "params": params,
+            }
+        )
+        while True:
+            message = await self._read_message()
+            if message.get("id") != request_id:
+                continue
+            if "error" in message:
+                raise ValueError(f"Codex app-server {method} failed: {message['error']}")
+            return message.get("result")
+
+    async def _notify(self, method: str, params: Mapping[str, Any] | None = None) -> None:
+        message: dict[str, Any] = {"method": method}
+        if params is not None:
+            message["params"] = params
+        await self._write_message(message)
+
+    async def _write_message(self, message: Mapping[str, Any]) -> None:
+        process = self.process
+        if process is None or process.stdin is None:
+            raise RuntimeError("Codex app-server process is not running")
+        line = json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode()
+        process.stdin.write(line + b"\n")
+        await process.stdin.drain()
+
+    async def _read_message(self) -> dict[str, Any]:
+        process = self.process
+        if process is None or process.stdout is None:
+            raise RuntimeError("Codex app-server process is not running")
+        pending = ""
+        pending_lines = 0
+        while True:
+            line = await process.stdout.readline()
+            if not line:
+                raise ValueError("Codex app-server process closed stdout")
+            raw_line = line.decode(errors="replace").rstrip("\n").rstrip("\r")
+            stripped = raw_line.strip()
+            if not stripped:
+                continue
+            candidate = f"{pending}\n{raw_line}" if pending else stripped
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError as exc:
+                if (
+                    _should_buffer_json_parse_failure(candidate.strip(), exc)
+                    and len(candidate) <= 1_000_000
+                    and pending_lines < 1_000
+                ):
+                    pending = candidate
+                    pending_lines += 1
+                    continue
+                logger.warning(
+                    "Failed to parse Codex app-server stdout message: %s",
+                    _preview_line(candidate),
+                    exc_info=exc,
+                )
+                pending = ""
+                pending_lines = 0
+                continue
+            if not isinstance(parsed, dict):
+                raise ValueError("Codex app-server returned non-object JSON-RPC message")
+            return parsed
+
+
+_DECISION_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["action", "amount", "confidence", "reasoning"],
+    "additionalProperties": False,
+    "properties": {
+        "action": {"type": "string", "enum": ["fold", "check", "call", "bet", "raise", "all_in"]},
+        "amount": {"type": "integer", "minimum": 0},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "reasoning": {"type": "string"},
+    },
+}
+
+
+def _codex_decision_prompt(
+    profile: BotProfile,
+    visible_state: Mapping[str, Any] | None,
+    legal_actions: Sequence[LegalAction],
+) -> str:
+    payload = {
+        "profile": {
+            "name": profile.name,
+            "style": profile.style.value,
+            "risk_tolerance": profile.risk_tolerance,
+            "bluff_frequency": profile.bluff_frequency,
+            "aggression": profile.aggression,
+        },
+        "visible_state": visible_state,
+        "legal_actions": [
+            {
+                "action": action.type.value,
+                "min_amount": action.min_amount,
+                "max_amount": action.max_amount,
+            }
+            for action in legal_actions
+        ],
+    }
+    return (
+        "你是德州扑克训练器里的电脑玩家。只从 legal_actions 中选择一个后端合法动作。"
+        "amount 必须在该动作的 min_amount 和 max_amount 范围内。"
+        "reasoning 必须用简短中文解释牌局决策。只返回 JSON，不要 Markdown。\n"
+        f"{json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}"
+    )
+
+
+def _parse_decision_json(content: str, source: str) -> DecisionResult:
+    stripped = content.strip()
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        stripped = "\n".join(lines).strip()
+    try:
+        parsed = json.loads(stripped)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{source} content is not strict JSON") from exc
+
+    required_keys = {"action", "amount", "confidence", "reasoning"}
+    if not isinstance(parsed, dict) or set(parsed) != required_keys:
+        raise ValueError(f"{source} JSON must contain exactly required keys")
+
+    action_value = parsed["action"]
+    amount = parsed["amount"]
+    confidence = parsed["confidence"]
+    reasoning = parsed["reasoning"]
+    if not isinstance(action_value, str):
+        raise ValueError(f"{source} action must be a string")
+    try:
+        action = ActionType(action_value)
+    except ValueError as exc:
+        raise ValueError(f"{source} action is not supported") from exc
+    if not isinstance(amount, int) or isinstance(amount, bool):
+        raise ValueError(f"{source} amount must be an integer")
+    if (
+        not isinstance(confidence, int | float)
+        or isinstance(confidence, bool)
+        or not 0 <= confidence <= 1
+    ):
+        raise ValueError(f"{source} confidence must be a number between 0 and 1")
+    if not isinstance(reasoning, str):
+        raise ValueError(f"{source} reasoning must be a string")
+    return DecisionResult(
+        action=action,
+        amount=amount,
+        confidence=float(confidence),
+        reasoning=reasoning,
+    )
+
+
+def _raise_if_turn_failed(turn: Any) -> None:
+    if not isinstance(turn, dict) or turn.get("status") != "failed":
+        return
+    error = turn.get("error")
+    raise ValueError(f"Codex app-server turn failed: {error}")
+
+
+def _should_buffer_json_parse_failure(value: str, exc: json.JSONDecodeError) -> bool:
+    if not value.startswith(("{", "[")):
+        return False
+    return exc.msg in {
+        "Unterminated string starting at",
+        "Expecting value",
+        "Expecting property name enclosed in double quotes",
+        "Expecting ',' delimiter",
+    } or exc.pos >= max(0, len(value) - 2)
+
+
+def _preview_line(value: str, max_length: int = 500) -> str:
+    compact = value.replace("\n", "\\n")
+    if len(compact) <= max_length:
+        return compact
+    return f"{compact[:max_length - 3]}..."
+
+
+def _extract_final_message(turn: Any) -> str | None:
+    if not isinstance(turn, dict):
+        return None
+    items = turn.get("items")
+    if not isinstance(items, list):
+        return None
+    agent_messages = [
+        item
+        for item in items
+        if isinstance(item, dict)
+        and item.get("type") == "agentMessage"
+        and isinstance(item.get("text"), str)
+    ]
+    for item in reversed(agent_messages):
+        if item.get("phase") == "final_answer":
+            return item["text"]
+    if agent_messages:
+        return agent_messages[-1]["text"]
+    return None
 
 
 def _scaled_amount(action: LegalAction, aggression: float) -> int:

@@ -5,7 +5,12 @@ import httpx
 import pytest
 
 from texas_holdem_trainer.ai.profiles import BotProfile, BotStyle
-from texas_holdem_trainer.ai.providers import HeuristicProvider, LLMProvider
+from texas_holdem_trainer.ai.providers import (
+    CodexAppServerClient,
+    CodexAppServerProvider,
+    HeuristicProvider,
+    LLMProvider,
+)
 from texas_holdem_trainer.ai.service import AIService, DecisionResult
 from texas_holdem_trainer.domain.actions import ActionType, LegalAction
 from texas_holdem_trainer.domain.cards import Card, Rank, Suit
@@ -103,7 +108,7 @@ async def test_ai_service_records_fallback_when_primary_provider_times_out() -> 
     )
 
     assert result.fallback_used is True
-    assert result.fallback_reason == "primary_provider_error: TimeoutError"
+    assert result.fallback_reason == "primary_provider_error: TimeoutError: provider timed out"
     assert is_backend_legal(result, legal_actions)
 
 
@@ -131,7 +136,7 @@ async def test_ai_service_records_fallback_when_llm_provider_times_out() -> None
     )
 
     assert result.fallback_used is True
-    assert result.fallback_reason == "primary_provider_error: ReadTimeout"
+    assert result.fallback_reason == "primary_provider_error: ReadTimeout: read timed out"
     assert is_backend_legal(result, legal_actions)
 
 
@@ -795,3 +800,319 @@ async def test_llm_provider_rejects_json_missing_required_keys() -> None:
             engine.legal_actions(state, seat),
             visible_state={"acting_seat": seat},
         )
+
+
+@pytest.mark.asyncio
+async def test_codex_app_server_provider_returns_backend_legal_json_decision() -> None:
+    class FakeCodexClient:
+        def __init__(self) -> None:
+            self.prompt = ""
+            self.model = ""
+            self.output_schema = {}
+            self.thread_key = ""
+            self.thread_keys = []
+
+        async def complete(
+            self,
+            *,
+            prompt: str,
+            model: str,
+            output_schema: dict,
+            thread_key: str,
+            timeout: float,
+        ) -> str:
+            self.prompt = prompt
+            self.model = model
+            self.output_schema = output_schema
+            self.thread_key = thread_key
+            self.thread_keys.append(thread_key)
+            return (
+                '{"action":"call","amount":10,'
+                '"confidence":0.82,"reasoning":"跟注价格合适，保留摊牌权益。"}'
+            )
+
+    engine, state = preflop_facing_bet_state()
+    seat = state.current_actor_seat
+    legal_actions = engine.legal_actions(state, seat)
+    client = FakeCodexClient()
+    provider = CodexAppServerProvider(model="gpt-5.5", client=client)
+
+    result = await provider.decide(
+        state,
+        seat,
+        BotProfile.for_style("bot", BotStyle.GTO_LEANING, provider="codex_app"),
+        legal_actions,
+        visible_state={"acting_seat": seat},
+    )
+
+    assert result == DecisionResult(
+        action=ActionType.CALL,
+        amount=10,
+        confidence=0.82,
+        reasoning="跟注价格合适，保留摊牌权益。",
+    )
+    assert client.model == "gpt-5.5"
+    assert client.thread_key.startswith("ai-test:1:preflop:")
+    assert client.thread_key.endswith(":attempt-1")
+    assert '"visible_state"' in client.prompt
+    assert client.output_schema["required"] == [
+        "action",
+        "amount",
+        "confidence",
+        "reasoning",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_codex_app_server_provider_rejects_non_json_response() -> None:
+    class FakeCodexClient:
+        async def complete(self, **kwargs):
+            return "我会跟注。"
+
+    engine, state = preflop_facing_bet_state()
+    seat = state.current_actor_seat
+    provider = CodexAppServerProvider(model="gpt-5.5", client=FakeCodexClient())
+
+    with pytest.raises(ValueError, match="strict JSON"):
+        await provider.decide(
+            state,
+            seat,
+            BotProfile.for_style("bot", BotStyle.GTO_LEANING, provider="codex_app"),
+            engine.legal_actions(state, seat),
+            visible_state={"acting_seat": seat},
+        )
+
+
+@pytest.mark.asyncio
+async def test_codex_app_server_provider_retries_invalid_json_response() -> None:
+    class FakeCodexClient:
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def complete(self, **kwargs):
+            self.calls.append(kwargs)
+            if len(self.calls) == 1:
+                return "我会跟注。"
+            return (
+                '{"action":"call","amount":10,'
+                '"confidence":0.73,"reasoning":"第二次严格返回 JSON。"}'
+            )
+
+    engine, state = preflop_facing_bet_state()
+    seat = state.current_actor_seat
+    client = FakeCodexClient()
+    provider = CodexAppServerProvider(model="gpt-5.5", client=client)
+
+    result = await provider.decide(
+        state,
+        seat,
+        BotProfile.for_style("bot", BotStyle.LOOSE_AGGRESSIVE, provider="codex_app"),
+        engine.legal_actions(state, seat),
+        visible_state={"acting_seat": seat},
+    )
+
+    assert result == DecisionResult(
+        action=ActionType.CALL,
+        amount=10,
+        confidence=0.73,
+        reasoning="第二次严格返回 JSON。",
+    )
+    assert len(client.calls) == 2
+    assert client.calls[0]["thread_key"].endswith(":attempt-1")
+    assert client.calls[1]["thread_key"].endswith(":attempt-2")
+    assert "上一轮返回无效" in client.calls[1]["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_codex_app_server_client_reads_final_message_from_completed_turn() -> None:
+    class FakeCodexClient(CodexAppServerClient):
+        def __init__(self) -> None:
+            super().__init__(command="codex")
+            self.sent_messages = []
+            self.read_index = 0
+            self.messages = [
+                {
+                    "id": 1,
+                    "result": {
+                        "turn": {
+                            "id": "turn-1",
+                            "items": [],
+                            "itemsView": "notLoaded",
+                            "status": "inProgress",
+                        }
+                    },
+                },
+                {
+                    "method": "turn/completed",
+                    "params": {
+                        "threadId": "thread-1",
+                        "turn": {
+                            "id": "turn-1",
+                            "items": [],
+                            "itemsView": "notLoaded",
+                            "status": "completed",
+                        },
+                    },
+                },
+            ]
+
+        async def _write_message(self, message):
+            self.sent_messages.append(message)
+
+        async def _read_message(self):
+            message = self.messages[self.read_index]
+            self.read_index += 1
+            return message
+
+        async def _request(self, method, params):
+            assert method == "thread/read"
+            assert params == {"threadId": "thread-1", "includeTurns": True}
+            return {
+                "thread": {
+                    "turns": [
+                        {
+                            "id": "turn-1",
+                            "items": [
+                                {
+                                    "type": "agentMessage",
+                                    "text": (
+                                        '{"action":"call","amount":10,'
+                                        '"confidence":0.5,"reasoning":"测试"}'
+                                    ),
+                                    "phase": "final_answer",
+                                }
+                            ],
+                            "itemsView": "full",
+                            "status": "completed",
+                        }
+                    ]
+                }
+            }
+
+    client = FakeCodexClient()
+
+    content = await client._start_turn_and_wait(
+        thread_id="thread-1",
+        model="gpt-5.5",
+        prompt="prompt",
+        output_schema={"type": "object"},
+    )
+
+    assert content == '{"action":"call","amount":10,"confidence":0.5,"reasoning":"测试"}'
+    assert client.sent_messages[0]["method"] == "turn/start"
+
+
+@pytest.mark.asyncio
+async def test_codex_app_server_client_retries_until_turn_items_are_loaded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeCodexClient(CodexAppServerClient):
+        def __init__(self) -> None:
+            super().__init__(command="codex")
+            self.reads = 0
+
+        async def _request(self, method, params):
+            assert method == "thread/read"
+            self.reads += 1
+            if self.reads == 1:
+                return {
+                    "thread": {
+                        "turns": [
+                            {
+                                "id": "turn-1",
+                                "items": [],
+                                "itemsView": "notLoaded",
+                                "status": "completed",
+                            }
+                        ]
+                    }
+                }
+            return {
+                "thread": {
+                    "turns": [
+                        {
+                            "id": "turn-1",
+                            "items": [
+                                {
+                                    "type": "agentMessage",
+                                    "text": (
+                                        '{"action":"fold","amount":0,'
+                                        '"confidence":0.8,"reasoning":"测试"}'
+                                    ),
+                                    "phase": "final_answer",
+                                }
+                            ],
+                            "itemsView": "full",
+                            "status": "completed",
+                        }
+                    ]
+                }
+            }
+
+    async def no_sleep(delay: float) -> None:
+        return None
+
+    monkeypatch.setattr("texas_holdem_trainer.ai.providers.asyncio.sleep", no_sleep)
+    client = FakeCodexClient()
+
+    content = await client._read_completed_turn_message(
+        thread_id="thread-1",
+        turn_id="turn-1",
+    )
+
+    assert content == '{"action":"fold","amount":0,"confidence":0.8,"reasoning":"测试"}'
+    assert client.reads == 2
+
+
+@pytest.mark.asyncio
+async def test_codex_app_server_client_reads_multiline_json_rpc_message() -> None:
+    class FakeStdout:
+        def __init__(self) -> None:
+            self.lines = iter(
+                [
+                    b'{\n',
+                    b'  "id": 7,\n',
+                    b'  "result": {\n',
+                    b'    "ok": true\n',
+                    b'  }\n',
+                    b'}\n',
+                ]
+            )
+
+        async def readline(self):
+            return next(self.lines, b"")
+
+    class FakeProcess:
+        stdout = FakeStdout()
+
+    client = CodexAppServerClient(command="codex")
+    client.process = FakeProcess()
+
+    message = await client._read_message()
+
+    assert message == {"id": 7, "result": {"ok": True}}
+
+
+@pytest.mark.asyncio
+async def test_codex_app_server_client_skips_non_json_stdout_lines() -> None:
+    class FakeStdout:
+        def __init__(self) -> None:
+            self.lines = iter(
+                [
+                    b"status: starting\n",
+                    b'{"id":8,"result":{"ok":true}}\n',
+                ]
+            )
+
+        async def readline(self):
+            return next(self.lines, b"")
+
+    class FakeProcess:
+        stdout = FakeStdout()
+
+    client = CodexAppServerClient(command="codex")
+    client.process = FakeProcess()
+
+    message = await client._read_message()
+
+    assert message == {"id": 8, "result": {"ok": True}}
