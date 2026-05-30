@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
+from inspect import isawaitable
 from typing import Any, Mapping, Sequence
 
 from texas_holdem_trainer.ai.profiles import BotProfile
@@ -54,6 +55,24 @@ class AIService:
         self.providers = dict(providers or {})
         self.reviewer_provider = reviewer_provider
         self.reviewer_model = reviewer_model
+
+    async def close(self) -> None:
+        seen: set[int] = set()
+        for provider in [
+            self.primary_provider,
+            self.fallback_provider,
+            *self.providers.values(),
+        ]:
+            identity = id(provider)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            close = getattr(provider, "close", None)
+            if close is None:
+                continue
+            result = close()
+            if isawaitable(result):
+                await result
 
     async def decide(
         self,

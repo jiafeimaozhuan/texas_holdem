@@ -114,6 +114,27 @@ def test_bot_profile_style_changes_aggression_parameters() -> None:
 
 
 @pytest.mark.asyncio
+async def test_ai_service_closes_unique_providers_once() -> None:
+    class ClosableProvider(HeuristicProvider):
+        def __init__(self) -> None:
+            self.close_count = 0
+
+        async def close(self) -> None:
+            self.close_count += 1
+
+    provider = ClosableProvider()
+    service = AIService(
+        primary_provider=provider,
+        fallback_provider=provider,
+        providers={"codex_app": provider},
+    )
+
+    await service.close()
+
+    assert provider.close_count == 1
+
+
+@pytest.mark.asyncio
 async def test_ai_service_records_fallback_when_primary_provider_times_out() -> None:
     class TimeoutProvider:
         async def decide(self, state, seat, profile, legal_actions, visible_state=None):
@@ -655,6 +676,8 @@ async def test_codex_app_server_provider_reviews_human_action_with_retry() -> No
     assert result.provider == "codex_app"
     assert result.model == "gpt-5.5"
     assert len(client.calls) == 2
+    assert client.calls[0]["thread_key"] == "review:gpt-5.5"
+    assert client.calls[1]["thread_key"] == "review:gpt-5.5"
     assert client.calls[0]["output_schema"]["required"] == [
         "score",
         "label",
@@ -1140,8 +1163,7 @@ async def test_codex_app_server_provider_returns_backend_legal_json_decision() -
         reasoning="跟注价格合适，保留摊牌权益。",
     )
     assert client.model == "gpt-5.5"
-    assert client.thread_key.startswith("ai-test:1:preflop:")
-    assert client.thread_key.endswith(":attempt-1")
+    assert client.thread_key == "decision:gpt-5.5"
     assert '"visible_state"' in client.prompt
     assert client.output_schema["required"] == [
         "action",
@@ -1206,8 +1228,8 @@ async def test_codex_app_server_provider_retries_invalid_json_response() -> None
         reasoning="第二次严格返回 JSON。",
     )
     assert len(client.calls) == 2
-    assert client.calls[0]["thread_key"].endswith(":attempt-1")
-    assert client.calls[1]["thread_key"].endswith(":attempt-2")
+    assert client.calls[0]["thread_key"] == "decision:gpt-5.5"
+    assert client.calls[1]["thread_key"] == "decision:gpt-5.5"
     assert "上一轮返回无效" in client.calls[1]["prompt"]
 
 
@@ -1350,6 +1372,51 @@ async def test_codex_app_server_client_retries_until_turn_items_are_loaded(
 
     assert content == '{"action":"fold","amount":0,"confidence":0.8,"reasoning":"测试"}'
     assert client.reads == 2
+
+
+@pytest.mark.asyncio
+async def test_codex_app_server_client_restarts_before_context_grows_too_large() -> None:
+    class FakeCodexClient(CodexAppServerClient):
+        def __init__(self) -> None:
+            super().__init__(command="codex", max_turns_per_process=2)
+            self.ensure_count = 0
+            self.close_count = 0
+            self.started_turns = []
+
+        async def _ensure_process(self) -> None:
+            self.ensure_count += 1
+            self.process = object()
+
+        async def close(self) -> None:
+            self.close_count += 1
+            self.process = None
+            self._thread_ids.clear()
+            self._turns_started = 0
+
+        async def _thread_id(self, thread_key, model):
+            return f"thread-{thread_key}"
+
+        async def _start_turn_and_wait(self, *, thread_id, model, prompt, output_schema):
+            self.started_turns.append((thread_id, prompt))
+            return '{"action":"fold","amount":0,"confidence":0.8,"reasoning":"测试"}'
+
+    client = FakeCodexClient()
+
+    for index in range(3):
+        await client._complete_locked(
+            prompt=f"prompt-{index}",
+            model="gpt-5.5",
+            output_schema={"type": "object"},
+            thread_key="decision:gpt-5.5",
+        )
+
+    assert client.close_count == 1
+    assert client._turns_started == 1
+    assert client.started_turns == [
+        ("thread-decision:gpt-5.5", "prompt-0"),
+        ("thread-decision:gpt-5.5", "prompt-1"),
+        ("thread-decision:gpt-5.5", "prompt-2"),
+    ]
 
 
 @pytest.mark.asyncio

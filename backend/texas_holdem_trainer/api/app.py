@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import (
     BackgroundTasks,
     FastAPI,
@@ -25,8 +28,16 @@ from texas_holdem_trainer.runtime.table_manager import (
 from texas_holdem_trainer.runtime.config import build_default_table_manager
 
 
-app = FastAPI(title="Texas Hold'em Trainer")
 table_manager = build_default_table_manager()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    yield
+    await table_manager.close()
+
+
+app = FastAPI(title="Texas Hold'em Trainer", lifespan=lifespan)
 
 
 @app.post(

@@ -71,6 +71,9 @@ class TableManager:
         self.tables.clear()
         self._next_table_number = 1
 
+    async def close(self) -> None:
+        await self.ai_service.close()
+
     def create_table(self, request: CreateTableRequest) -> TableStateResponse:
         names = self._player_names(request)
         table_id = self._new_table_id()

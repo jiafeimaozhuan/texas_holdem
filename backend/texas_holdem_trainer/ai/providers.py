@@ -5,6 +5,7 @@ import json
 import logging
 import shlex
 from dataclasses import dataclass
+from inspect import isawaitable
 from typing import Any, Mapping, Protocol, Sequence
 
 import httpx
@@ -471,13 +472,9 @@ class CodexAppServerProvider:
     ) -> DecisionResult:
         prompt = _codex_decision_prompt(profile, visible_state, legal_actions)
         model = profile.model or self.model
-        decision_key = (
-            f"{state.table_id}:{state.hand_number}:{state.street.value}:"
-            f"{seat}:{len(state.hand_history)}"
-        )
+        thread_key = f"decision:{model}"
         last_error: ValueError | None = None
         for attempt in range(2):
-            thread_key = f"{decision_key}:attempt-{attempt + 1}"
             attempt_prompt = prompt
             if last_error is not None:
                 attempt_prompt = (
@@ -528,13 +525,9 @@ class CodexAppServerProvider:
     ) -> HumanReviewResult:
         model = self.model
         prompt = _codex_review_prompt(visible_state, legal_actions, action, amount)
-        review_key = (
-            f"review:{state.table_id}:{state.hand_number}:{state.street.value}:"
-            f"{seat}:{len(state.hand_history)}"
-        )
+        thread_key = f"review:{model}"
         last_error: ValueError | None = None
         for attempt in range(2):
-            thread_key = f"{review_key}:attempt-{attempt + 1}"
             attempt_prompt = prompt
             if last_error is not None:
                 attempt_prompt = (
@@ -579,6 +572,13 @@ class CodexAppServerProvider:
             raise ValueError("Codex app-server review response could not be parsed")
         raise last_error
 
+    async def close(self) -> None:
+        close = getattr(self.client, "close", None)
+        if close is not None:
+            result = close()
+            if isawaitable(result):
+                await result
+
 
 class CodexAppServerClient:
     def __init__(
@@ -586,14 +586,38 @@ class CodexAppServerClient:
         *,
         command: str = "codex",
         cwd: str | None = None,
+        max_turns_per_process: int = 16,
     ) -> None:
         self.command = command
         self.cwd = cwd
+        self.max_turns_per_process = max(1, max_turns_per_process)
         self.process: asyncio.subprocess.Process | None = None
         self._next_id = 1
         self._lock = asyncio.Lock()
         self._thread_ids: dict[str, str] = {}
         self._stderr_task: asyncio.Task[None] | None = None
+        self._turns_started = 0
+
+    async def close(self) -> None:
+        process = self.process
+        self.process = None
+        self._thread_ids.clear()
+        stderr_task = self._stderr_task
+        self._stderr_task = None
+        if process is not None and process.returncode is None:
+            process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=3)
+            except TimeoutError:
+                process.kill()
+                await process.wait()
+        if stderr_task is not None:
+            stderr_task.cancel()
+            try:
+                await stderr_task
+            except asyncio.CancelledError:
+                pass
+        self._turns_started = 0
 
     async def complete(
         self,
@@ -624,13 +648,19 @@ class CodexAppServerClient:
         thread_key: str,
     ) -> str:
         await self._ensure_process()
+        if self._turns_started >= self.max_turns_per_process:
+            await self.close()
+            await self._ensure_process()
         thread_id = await self._thread_id(thread_key, model)
-        return await self._start_turn_and_wait(
-            thread_id=thread_id,
-            model=model,
-            prompt=prompt,
-            output_schema=output_schema,
-        )
+        try:
+            return await self._start_turn_and_wait(
+                thread_id=thread_id,
+                model=model,
+                prompt=prompt,
+                output_schema=output_schema,
+            )
+        finally:
+            self._turns_started += 1
 
     async def _start_turn_and_wait(
         self,
