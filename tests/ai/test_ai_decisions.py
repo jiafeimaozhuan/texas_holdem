@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import get_type_hints
 
@@ -1417,6 +1418,63 @@ async def test_codex_app_server_client_restarts_before_context_grows_too_large()
         ("thread-decision:gpt-5.5", "prompt-1"),
         ("thread-decision:gpt-5.5", "prompt-2"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_codex_app_server_client_closes_process_after_timeout() -> None:
+    class SlowCodexClient(CodexAppServerClient):
+        def __init__(self) -> None:
+            super().__init__(command="codex")
+            self.close_count = 0
+
+        async def _complete_locked(self, *, prompt, model, output_schema, thread_key):
+            await asyncio.sleep(1)
+            return "{}"
+
+        async def close(self) -> None:
+            self.close_count += 1
+            await super().close()
+
+    client = SlowCodexClient()
+
+    with pytest.raises(TimeoutError):
+        await client.complete(
+            prompt="prompt",
+            model="gpt-5.5",
+            output_schema={"type": "object"},
+            thread_key="decision:gpt-5.5",
+            timeout=0.01,
+        )
+
+    assert client.close_count == 1
+
+
+@pytest.mark.asyncio
+async def test_codex_app_server_client_closes_process_after_runtime_error() -> None:
+    class FailingCodexClient(CodexAppServerClient):
+        def __init__(self) -> None:
+            super().__init__(command="codex")
+            self.close_count = 0
+
+        async def _complete_locked(self, *, prompt, model, output_schema, thread_key):
+            raise ValueError("Codex app-server turn/start failed")
+
+        async def close(self) -> None:
+            self.close_count += 1
+            await super().close()
+
+    client = FailingCodexClient()
+
+    with pytest.raises(ValueError, match="turn/start failed"):
+        await client.complete(
+            prompt="prompt",
+            model="gpt-5.5",
+            output_schema={"type": "object"},
+            thread_key="decision:gpt-5.5",
+            timeout=1,
+        )
+
+    assert client.close_count == 1
 
 
 @pytest.mark.asyncio

@@ -31,6 +31,20 @@ npm install
 
 ## 3. 启动程序
 
+推荐使用一条命令同时启动后端和前端：
+
+```bash
+./scripts/dev.sh
+```
+
+默认后端端口是 `8001`，前端端口是 `5173`。如需改端口：
+
+```bash
+BACKEND_PORT=8002 FRONTEND_PORT=5174 ./scripts/dev.sh
+```
+
+脚本会自动设置 `PYTHONPATH=backend` 和 `VITE_PROXY_TARGET`，并在退出时关闭两个子进程。
+
 启动后端：
 
 ```bash

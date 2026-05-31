@@ -629,15 +629,25 @@ class CodexAppServerClient:
         timeout: float,
     ) -> str:
         async with self._lock:
-            return await asyncio.wait_for(
-                self._complete_locked(
-                    prompt=prompt,
-                    model=model,
-                    output_schema=output_schema,
-                    thread_key=thread_key,
-                ),
-                timeout=timeout,
-            )
+            try:
+                return await asyncio.wait_for(
+                    self._complete_locked(
+                        prompt=prompt,
+                        model=model,
+                        output_schema=output_schema,
+                        thread_key=thread_key,
+                    ),
+                    timeout=timeout,
+                )
+            except TimeoutError:
+                await self.close()
+                raise
+            except asyncio.CancelledError:
+                await self.close()
+                raise
+            except (RuntimeError, ValueError):
+                await self.close()
+                raise
 
     async def _complete_locked(
         self,

@@ -26,6 +26,18 @@ npm install
 
 ## Run Locally
 
+One-command development startup from the repository root:
+
+```bash
+./scripts/dev.sh
+```
+
+By default this starts the backend on `http://127.0.0.1:8001` and the frontend on Vite's local URL. Override ports when needed:
+
+```bash
+BACKEND_PORT=8002 FRONTEND_PORT=5174 ./scripts/dev.sh
+```
+
 Start the backend from the repository root:
 
 ```bash
