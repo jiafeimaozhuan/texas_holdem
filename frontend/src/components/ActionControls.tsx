@@ -18,32 +18,59 @@ function defaultAmount(action: LegalActionView): number {
   return action.min_amount;
 }
 
-function clampAmount(value: number, action: LegalActionView): number {
-  if (!Number.isFinite(value)) {
-    return defaultAmount(action);
-  }
-  return Math.min(action.max_amount, Math.max(action.min_amount, Math.floor(value)));
+function defaultAmountValue(action: LegalActionView): string {
+  return String(defaultAmount(action));
 }
 
-function submitAmount(action: LegalActionView, amountValue: number): number {
+function submitAmount(action: LegalActionView, amountValue: string): number {
   if (action.action === "fold" || action.action === "check") {
     return 0;
   }
   if (action.min_amount === action.max_amount) {
     return action.min_amount;
   }
-  return clampAmount(amountValue, action);
+  return Number(amountValue);
+}
+
+function validateAmount(action: LegalActionView, amountValue: string): string | null {
+  if (action.action === "fold" || action.action === "check") {
+    return null;
+  }
+  if (action.min_amount === action.max_amount) {
+    return null;
+  }
+
+  const trimmed = amountValue.trim();
+  if (!trimmed) {
+    return "请输入金额";
+  }
+  if (!/^\d+$/.test(trimmed)) {
+    return "金额必须是非负整数";
+  }
+
+  const amount = Number(trimmed);
+  if (!Number.isSafeInteger(amount)) {
+    return "金额过大，请重新输入";
+  }
+  if (amount < action.min_amount) {
+    return `金额不能小于 ${action.min_amount}`;
+  }
+  if (amount > action.max_amount) {
+    return `金额不能大于 ${action.max_amount}`;
+  }
+  return null;
 }
 
 export function ActionControls({ state, isSubmitting, onSubmit }: ActionControlsProps) {
-  const [amounts, setAmounts] = useState<Record<ActionType, number>>({
-    fold: 0,
-    check: 0,
-    call: 0,
-    bet: 0,
-    raise: 0,
-    all_in: 0,
+  const [amounts, setAmounts] = useState<Record<ActionType, string>>({
+    fold: "0",
+    check: "0",
+    call: "0",
+    bet: "0",
+    raise: "0",
+    all_in: "0",
   });
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const legalActions = state?.legal_actions ?? emptyLegalActions;
   const isHumanTurn = Boolean(
@@ -55,7 +82,7 @@ export function ActionControls({ state, isSubmitting, onSubmit }: ActionControls
       const next = { ...current };
       let changed = false;
       for (const action of legalActions) {
-        const amount = clampAmount(current[action.action] || defaultAmount(action), action);
+        const amount = current[action.action] || defaultAmountValue(action);
         if (amount !== current[action.action]) {
           next[action.action] = amount;
           changed = true;
@@ -63,7 +90,19 @@ export function ActionControls({ state, isSubmitting, onSubmit }: ActionControls
       }
       return changed ? next : current;
     });
+    setValidationError(null);
   }, [legalActions]);
+
+  async function handleSubmit(legalAction: LegalActionView): Promise<void> {
+    const amountValue = amounts[legalAction.action] ?? defaultAmountValue(legalAction);
+    const error = validateAmount(legalAction, amountValue);
+    if (error) {
+      setValidationError(`${actionLabel(legalAction.action)}：${error}`);
+      return;
+    }
+    setValidationError(null);
+    await onSubmit(legalAction.action, submitAmount(legalAction, amountValue.trim()));
+  }
 
   const status = useMemo(() => {
     if (!state) {
@@ -86,24 +125,24 @@ export function ActionControls({ state, isSubmitting, onSubmit }: ActionControls
       </div>
 
       <div className="action-list">
+        {validationError ? (
+          <p className="action-error" role="alert">
+            {validationError}
+          </p>
+        ) : null}
         {legalActions.length === 0 ? (
           <span className="muted-state">暂无可用行动</span>
         ) : (
           legalActions.map((legalAction) => {
             const hasAmountControl = rangedActions.has(legalAction.action);
             const isFixedAmount = legalAction.min_amount === legalAction.max_amount;
-            const amount = clampAmount(
-              amounts[legalAction.action] ?? defaultAmount(legalAction),
-              legalAction,
-            );
+            const amount = amounts[legalAction.action] ?? defaultAmountValue(legalAction);
 
             return (
               <div className="action-row" key={legalAction.action}>
                 <button
                   type="button"
-                  onClick={() =>
-                    onSubmit(legalAction.action, submitAmount(legalAction, amount))
-                  }
+                  onClick={() => void handleSubmit(legalAction)}
                   disabled={!isHumanTurn || isSubmitting}
                 >
                   {actionLabel(legalAction.action)}
@@ -121,16 +160,21 @@ export function ActionControls({ state, isSubmitting, onSubmit }: ActionControls
                       min={legalAction.min_amount}
                       max={legalAction.max_amount}
                       value={amount}
+                      inputMode="numeric"
+                      aria-invalid={
+                        validationError?.startsWith(actionLabel(legalAction.action)) ||
+                        undefined
+                      }
                       disabled={!isHumanTurn || isSubmitting}
                       readOnly={isFixedAmount}
                       onChange={(event) => {
                         if (isFixedAmount) {
                           return;
                         }
-                        const value = Number(event.target.value);
+                        setValidationError(null);
                         setAmounts((current) => ({
                           ...current,
-                          [legalAction.action]: clampAmount(value, legalAction),
+                          [legalAction.action]: event.target.value,
                         }));
                       }}
                     />

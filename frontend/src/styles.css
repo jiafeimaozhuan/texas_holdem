@@ -499,6 +499,18 @@ select {
   padding: 14px;
 }
 
+.action-error {
+  background: #fff1ed;
+  border: 1px solid #d04f3d;
+  border-radius: 6px;
+  color: #8d2e22;
+  font-size: 0.86rem;
+  font-weight: 800;
+  line-height: 1.35;
+  margin: 0;
+  padding: 8px 10px;
+}
+
 .action-row {
   align-items: center;
   display: grid;
