@@ -2,6 +2,7 @@
 name = "texas-holdem-trainer"
 version = "0.1.0"
 requires-python = ">=3.11"
+license = { file = "LICENSE" }
 dependencies = [
   "fastapi>=0.111",
   "uvicorn[standard]>=0.30",

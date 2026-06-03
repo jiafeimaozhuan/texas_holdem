@@ -1,20 +1,18 @@
-# Texas Hold'em Trainer 使用说明
+# 使用说明
 
-本文档说明如何在本地运行德州扑克训练程序、如何开始一局训练、如何配置 AI 玩家，以及如何查看 AI 决策依据和人类玩家行动复盘。
+本文档是 Texas Hold'em Trainer 的本地运行和训练手册。README 只保留快速入口；安装细节、训练流程、AI 配置和排障统一维护在这里。
 
-本项目只用于本地单机训练和复盘，不提供真钱、支付、联网匹配或赌博功能。
+本项目仅用于本地单机训练和复盘，不提供真钱、支付、联网匹配或赌博功能。
 
-## 1. 环境要求
+## 1. 环境准备
+
+需要：
 
 - Python 3.11+
 - Node.js 20+
 - npm
 
-建议在项目根目录执行后端命令，在 `frontend/` 目录执行前端命令。
-
-## 2. 安装依赖
-
-后端：
+安装后端依赖：
 
 ```bash
 python -m venv .venv
@@ -22,176 +20,116 @@ source .venv/bin/activate
 python -m pip install -e ".[dev]"
 ```
 
-前端：
+安装前端依赖：
 
 ```bash
 cd frontend
 npm install
+cd ..
 ```
 
-## 3. 启动程序
+## 2. 启动程序
 
-推荐使用一条命令同时启动后端和前端：
+推荐从仓库根目录一键启动：
 
 ```bash
 ./scripts/dev.sh
 ```
 
-默认后端端口是 `8001`，前端端口是 `5173`。如需改端口：
+默认端口：
+
+- 后端：`http://127.0.0.1:8001`
+- 前端：`http://127.0.0.1:5173`
+
+修改端口：
 
 ```bash
 BACKEND_PORT=8002 FRONTEND_PORT=5174 ./scripts/dev.sh
 ```
 
-脚本会自动设置 `PYTHONPATH=backend` 和 `VITE_PROXY_TARGET`，并在退出时关闭两个子进程。
+脚本会自动设置 `PYTHONPATH=backend` 和 `VITE_PROXY_TARGET`。如果端口已被占用，脚本会打印占用进程并退出；先关闭旧进程，或换一个端口。
 
-启动后端：
+### 手动启动
 
-```bash
-cd /path/to/texas_holdem
-source .venv/bin/activate
-PYTHONPATH="$PWD/backend" python -m uvicorn texas_holdem_trainer.api.app:app --reload --reload-dir "$PWD/backend" --port 8000
-```
-
-启动前端：
+后端：
 
 ```bash
-cd frontend
-npm run dev
-```
-
-浏览器打开 Vite 输出的地址，通常是：
-
-```text
-http://127.0.0.1:5173
-```
-
-如果本机 `8000` 端口已被占用，可以改用备用端口：
-
-```bash
-cd /path/to/texas_holdem
 PYTHONPATH="$PWD/backend" python -m uvicorn texas_holdem_trainer.api.app:app --reload --reload-dir "$PWD/backend" --port 8001
-cd frontend
-VITE_PROXY_TARGET=http://127.0.0.1:8001 npm run dev
 ```
 
-## 4. 第一次训练流程
+前端：
+
+```bash
+cd frontend
+VITE_PROXY_TARGET=http://127.0.0.1:8001 npm run dev -- --port 5173 --strictPort
+```
+
+打开 Vite 输出的本地地址，例如 `http://127.0.0.1:5173`。
+
+## 3. 第一次训练
 
 1. 打开前端页面。
-2. 在右侧 `Settings` 面板设置座位数、起始筹码、小盲和大盲。
-3. 为每个 AI 玩家选择风格，例如 Tight Aggressive、Loose Aggressive、Conservative、Bluff Heavy、GTO Leaning。
-4. 点击 `Create Table` 创建训练桌。
-5. 点击 `Start Hand` 开始一手牌。
-6. 轮到人类玩家时，底部 `Actions` 面板会显示后端返回的合法动作。
-7. 点击 `Fold`、`Check`、`Call`、`Bet`、`Raise` 或 `All-in` 完成行动。
-8. 你每次行动后，右侧 `Coach` 面板会显示“玩家复盘”，包括评分、评价标签、建议行动和即时反馈。
-9. AI 行动后，右侧 `Coach` 面板会显示 AI 的动作、下注额、风格、provider/model、置信度和决策依据。
-10. `History` 面板会记录盲注、发牌、行动、人类复盘、街道推进、AI 决策和结算事件。
+2. 在设置面板选择座位数、起始筹码、小盲、大盲和 AI 风格。
+3. 点击创建牌桌。
+4. 点击开始手牌。
+5. 轮到真人玩家时，在行动区选择 `弃牌`、`过牌`、`跟注`、`下注`、`加注` 或 `全下`。
+6. 对于下注和加注，可以输入具体金额；前端会先提示格式和范围错误，后端仍会做最终合法性校验。
+7. 真人行动后，教练面板会显示评分、标签、建议行动和中文反馈。
+8. AI 行动后，教练面板会显示动作、金额、风格、provider/model、置信度、fallback 状态和决策依据。
+9. 历史面板会持续记录盲注、发牌、行动、复盘、街道推进、摊牌和结算事件。
 
-## 5. 界面说明
+## 4. 界面区域
 
-### Table
+### 牌桌
 
-牌桌区域展示：
+展示座位、筹码、当前下注、底池、公共牌、真人手牌、庄位、小盲、大盲和当前行动玩家。AI 手牌在未摊牌前保持隐藏。
 
-- 玩家座位、名称和筹码。
-- 人类玩家手牌。
-- AI 玩家隐藏手牌，摊牌或手牌结束后按后端状态展示。
-- 公共牌。
-- 底池、当前下注、最小加注。
-- Dealer、SB、BB 和当前行动玩家标记。
+### 行动区
 
-### Actions
+行动区只展示后端返回的合法动作。前端负责交互提示，不能替代后端规则判断。
 
-行动区只展示后端判定为合法的动作。前端不会自行判断德州扑克规则。
+- `弃牌`：放弃当前手牌。
+- `过牌`：无人下注时不投入筹码。
+- `跟注`：补齐到当前最高下注。
+- `下注`：无人下注时主动投入筹码。
+- `加注`：把当前最高下注提高到指定总额。
+- `全下`：投入当前剩余筹码。
 
-- `Fold`：弃牌。
-- `Check`：无人下注时过牌。
-- `Call`：跟注到当前下注额。
-- `Bet`：无人下注时主动下注。
-- `Raise`：加注到指定总额。
-- `All-in`：投入当前剩余筹码。
+### 教练面板
 
-`Bet`、`Raise` 和 `All-in` 会显示金额输入框。即使可选金额固定，界面也会展示金额，方便复盘时看清提交数值。
+展示两类信息：
 
-### Coach
+- AI 决策：动作、金额、风格、决策源、模型、置信度和公开理由。
+- 真人复盘：本次行动评分、评价标签、建议行动和即时反馈。
 
-Coach 面板展示最近一次 AI 决策：
+公开理由不会泄露其他玩家隐藏手牌。LLM 原始输出会经过后端解析和整理；非法动作、非法金额或非法复盘结构都会触发 fallback。
 
-- AI 玩家名称。
-- 风格。
-- provider 和 model。
-- 动作和金额。
-- confidence。
-- fallback 状态。
-- 面向人类复盘的公开决策说明。
+### 历史面板
 
-公开说明不会直接显示其他玩家的隐藏手牌。LLM 原始输出不会直接作为公开说明使用，后端会生成安全的公开说明模板。
+按时间顺序展示当前手牌事件，用于复盘行动链和结算结果。
 
-Coach 面板也会展示最近一次真人玩家行动复盘：
+## 5. AI 玩家配置
 
-- 本次行动评分，范围 0-100。
-- 评价标签：优秀、可接受、偏松、偏紧或风险过高。
-- 你的行动和建议行动。
-- 评审 provider 和 model。
-- 面向训练的中文即时反馈。
+默认不需要 API key，AI 会使用本地 heuristic provider。
 
-人类行动复盘使用行动前的可见牌局状态，不会读取对手隐藏手牌。复盘 provider 失败时会回退到本地 heuristic 评审。
-
-### History
-
-History 面板按时间顺序展示当前手牌事件：
-
-- hand started。
-- small blind / big blind。
-- hole cards dealt。
-- 玩家行动。
-- Human review。
-- AI decision。
-- street transition。
-- showdown / settlement。
-
-## 6. AI 玩家风格
-
-当前支持的风格：
-
-- `tight_aggressive`：紧凶，入池范围更紧，强牌更主动。
-- `loose_aggressive`：松凶，入池更宽，进攻频率更高。
-- `conservative`：保守，更倾向控池和弃弱牌。
-- `bluff_heavy`：诈唬型，更愿意用进攻施压。
-- `gto_leaning`：GTO 倾向，参数更均衡。
-
-这些风格会影响 heuristic provider 的风险偏好、诈唬频率和进攻倾向，也会作为 LLM provider 的输入上下文。
-
-## 7. LLM Provider 配置
-
-不配置 API key 时，程序默认使用本地 heuristic AI，可以离线训练。
-
-如需尝试 OpenAI-compatible LLM provider：
-
-1. 复制环境变量示例：
+复制配置：
 
 ```bash
 cp .env.example .env
+cp config/ai_players.example.yaml config/ai_players.yaml
 ```
 
-2. 编辑 `.env`：
+`.env` 常用项：
 
 ```text
-OPENAI_API_KEY=your-openai-key
-DEEPSEEK_API_KEY=your-deepseek-key
+OPENAI_API_KEY=
+DEEPSEEK_API_KEY=
 LLM_TIMEOUT_SECONDS=12
 AI_PLAYERS_CONFIG=config/ai_players.yaml
 AI_DEFAULT_PROVIDER=heuristic
 ```
 
-3. 复制 AI 配置示例：
-
-```bash
-cp config/ai_players.example.yaml config/ai_players.yaml
-```
-
-4. 在 `config/ai_players.yaml` 中把某个 profile 的 provider 改为 `openai` 或 `deepseek`：
+`config/ai_players.yaml` 中每个 profile 可以配置名称、风格、provider 和模型：
 
 ```yaml
 profiles:
@@ -200,41 +138,40 @@ profiles:
     provider: "openai"
 ```
 
-真人玩家行动复盘由 `reviewer` 配置决定，和各个电脑玩家 profile 独立：
+当前风格：
+
+- `tight_aggressive`：紧凶，范围更紧，强牌更主动。
+- `loose_aggressive`：松凶，范围更宽，进攻频率更高。
+- `conservative`：保守，更倾向控池和弃弱牌。
+- `bluff_heavy`：诈唬型，更愿意用进攻施压。
+- `gto_leaning`：GTO 倾向，参数更均衡。
+
+profile 的 `name` 用于前端展示、日志和复盘识别。建议保持唯一，避免排查日志时混淆。
+
+## 6. 真人复盘教练
+
+真人行动复盘由 `reviewer` 配置决定，和电脑玩家 profile 独立：
 
 ```yaml
 reviewer:
   provider: "heuristic"
-  # provider: "openai"
-  # provider: "deepseek"
-  # provider: "codex_app"
 ```
 
-如果希望用 Codex app-server/native runtime 作为复盘教练：
+可切换为 LLM provider：
 
 ```yaml
 reviewer:
-  provider: "codex_app"
-  model: "gpt-5.5"
+  provider: "openai"
+  model: "gpt-4.1"
 ```
 
-复盘 provider 只负责评价“这次人类行动是否合理”和给出中文反馈；合法动作、下注金额校验、胜负和筹码结算仍由后端代码处理。
+复盘 provider 只评价已提交行动是否合理，并给出训练建议。它不会改变已发生的动作，也不能影响合法动作校验和筹码结算。
 
-也可以设置：
+## 7. Codex app-server provider
 
-```text
-AI_DEFAULT_PROVIDER=openai
-```
+如果本机已登录 Codex，可以通过 `codex_app` provider 使用 Codex app-server/native runtime。该方式不需要把 OpenAI API key 配给本应用，但后端进程必须能访问当前用户的 Codex 登录状态。
 
-这会让没有显式 profile override 的风格默认使用 OpenAI provider。
-
-如果 provider 缺少 API key、超时、返回非法 JSON、返回非法动作或金额，后端会自动 fallback 到 heuristic provider，并在 Coach/History 中记录 fallback 状态。
-
-### Codex app-server provider
-
-如果你本机已登录 Codex，并希望通过 Codex app-server/native runtime 使用 `gpt-5.5`，可以使用 `codex_app` provider。它不需要把 OpenAI API key 配给本应用，但后端进程必须能访问当前用户的 Codex 登录状态。
-
-`config/ai_players.yaml` 示例：
+示例：
 
 ```yaml
 providers:
@@ -248,13 +185,17 @@ profiles:
   - name: "GTO Bot"
     style: "gto_leaning"
     provider: "codex_app"
+
+reviewer:
+  provider: "codex_app"
+  model: "gpt-5.5"
 ```
 
-后端会为 `codex_app` 启动一个本地 `codex app-server --listen stdio://` 子进程，并通过 JSON-RPC 发送德州扑克可见状态。当前 Codex app-server 的 ephemeral thread 不支持回读完整 turn items，因此训练器会使用非 ephemeral thread，本地 Codex 历史中可能出现训练决策记录。Codex 仍然只负责返回动作建议和中文理由；后端继续校验合法动作、金额和 fallback。
+后端会启动本地 `codex app-server --listen stdio://` 子进程，并通过 JSON-RPC 发送可见牌局状态。Codex 只负责返回动作建议、中文理由或复盘结果；后端继续校验所有规则。
 
 ## 8. 规则边界
 
-德州扑克核心规则由代码实现，不依赖 LLM 判断：
+以下规则必须由代码执行，不能依赖 LLM：
 
 - 洗牌和发牌。
 - 小盲和大盲。
@@ -268,17 +209,17 @@ profiles:
 - 筹码结算。
 - hand history。
 
-LLM 只负责 AI 玩家“选择哪个后端合法动作、为什么这么选”，以及对真人玩家已提交行动做训练点评。即使 LLM 给出非法动作或非法复盘结构，后端也会拒绝并 fallback。
+LLM 只负责“如何选择动作”和“为什么这么选择”，以及对真人行动给出训练反馈。
 
 ## 9. 验证命令
 
-后端测试：
+后端和规则测试：
 
 ```bash
 python -m pytest -q
 ```
 
-前端构建：
+前端类型检查和构建：
 
 ```bash
 cd frontend
@@ -287,36 +228,31 @@ npm run build
 
 推荐手动烟测：
 
-1. Create Table。
-2. Start Hand。
-3. 确认 Hero 手牌和合法动作显示。
-4. 提交一个动作。
+1. 创建牌桌。
+2. 开始手牌。
+3. 确认真人手牌和合法动作显示。
+4. 输入一个合法加注金额并提交。
 5. 确认 AI 行动继续推进。
-6. 确认 Coach 展示 AI reasoning。
-7. 确认 Coach 展示玩家复盘评分和中文反馈。
-8. 确认 History 事件增加。
+6. 确认教练面板展示 AI reasoning 和真人复盘。
+7. 确认历史事件持续增加。
 
 ## 10. 常见问题
 
-### 前端显示 API 请求失败
+### 端口已被占用
 
-确认后端正在运行，并且 Vite proxy 指向正确端口。
-
-默认情况下前端代理到：
-
-```text
-http://127.0.0.1:8000
-```
-
-如果后端使用 `8001`，启动前端时需要：
+`./scripts/dev.sh` 会显示占用进程。关闭旧后端/前端进程，或换端口启动：
 
 ```bash
-VITE_PROXY_TARGET=http://127.0.0.1:8001 npm run dev
+BACKEND_PORT=8002 FRONTEND_PORT=5174 ./scripts/dev.sh
 ```
+
+### 前端显示 API 请求失败
+
+确认后端正在运行，并且 `VITE_PROXY_TARGET` 指向正确后端端口。使用 `./scripts/dev.sh` 时会自动设置。
 
 ### 前端构建提示 `tsc: command not found`
 
-说明 `frontend/node_modules` 不存在或依赖未安装：
+说明前端依赖未安装：
 
 ```bash
 cd frontend
@@ -329,13 +265,13 @@ npm run build
 检查：
 
 - `.env` 是否存在。
-- API key 对应的环境变量是否有值。
+- API key 环境变量是否有值。
 - `AI_PLAYERS_CONFIG` 是否指向正确 YAML。
-- YAML 中 profile/provider 是否设置为 `openai` 或 `deepseek`。
+- YAML 中 profile/provider 是否配置正确。
 - 后端是否已重启。
 
-没有可用 key 时，provider 会被跳过，界面会显示 heuristic/local。
+provider 缺少 key、超时、返回非法 JSON、返回非法动作或非法金额时，后端会 fallback 到 heuristic provider。
 
 ### 为什么不是完整 side pot
 
-MVP 支持简化 all-in 处理，完整 side-pot 创建和结算是后续里程碑。当前代码已经把结算逻辑集中在后端 engine，后续可以替换/增强而不改变 UI 和 AI 决策接口。
+当前 MVP 支持简化 all-in 处理。完整 side pot 创建和结算是后续里程碑；结算逻辑已经集中在后端 engine，后续可以增强而不改变 UI 和 AI 决策接口。

@@ -25,6 +25,13 @@ def _emit_llm_log(message: str) -> None:
     print(message, flush=True)
 
 
+def _compact_response_text(response: httpx.Response) -> str:
+    try:
+        return json.dumps(response.json(), ensure_ascii=False, separators=(",", ":"))
+    except ValueError:
+        return response.text
+
+
 @dataclass(frozen=True)
 class DecisionResult:
     action: ActionType
@@ -323,7 +330,7 @@ class LLMProvider:
                 "LLM response "
                 f"url={request_url} "
                 f"status={response.status_code} "
-                f"body={response.text}"
+                f"body={_compact_response_text(response)}"
             )
             response.raise_for_status()
 
@@ -394,7 +401,7 @@ class LLMProvider:
                 "LLM review response "
                 f"url={request_url} "
                 f"status={response.status_code} "
-                f"body={response.text}"
+                f"body={_compact_response_text(response)}"
             )
             response.raise_for_status()
 
