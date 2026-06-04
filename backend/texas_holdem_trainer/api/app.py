@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import (
     BackgroundTasks,
@@ -146,11 +147,41 @@ async def table_socket(websocket: WebSocket, table_id: str) -> None:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
+    disconnect_task = asyncio.create_task(_wait_for_websocket_disconnect(websocket))
+    state_task: asyncio.Task[TableStateResponse] | None = None
     try:
         while True:
-            state = await queue.get()
+            state_task = asyncio.create_task(queue.get())
+            done, _ = await asyncio.wait(
+                {state_task, disconnect_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if disconnect_task in done:
+                with suppress(WebSocketDisconnect):
+                    disconnect_task.result()
+                break
+            state = state_task.result()
+            state_task = None
             await websocket.send_json(state.model_dump(mode="json", exclude_none=True))
     except WebSocketDisconnect:
         pass
     finally:
+        if state_task is not None and not state_task.done():
+            state_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await state_task
+        if disconnect_task.done():
+            with suppress(WebSocketDisconnect, asyncio.CancelledError):
+                disconnect_task.result()
+        else:
+            disconnect_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await disconnect_task
         table_manager.unsubscribe(table_id, queue)
+
+
+async def _wait_for_websocket_disconnect(websocket: WebSocket) -> None:
+    while True:
+        message = await websocket.receive()
+        if message.get("type") == "websocket.disconnect":
+            return

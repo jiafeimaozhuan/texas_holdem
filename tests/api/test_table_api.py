@@ -1,12 +1,14 @@
 import json
+import asyncio
 
 import pytest
+from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
 
 from texas_holdem_trainer.ai.providers import HeuristicProvider
 from texas_holdem_trainer.ai.service import AIService
 from texas_holdem_trainer.api.schemas import CreateTableRequest, SubmitActionRequest
-from texas_holdem_trainer.api.app import app, table_manager
+from texas_holdem_trainer.api.app import app, table_manager, table_socket
 
 
 @pytest.fixture(autouse=True)
@@ -231,6 +233,62 @@ async def test_human_fold_broadcasts_ai_continuation_before_completion() -> None
         for update in updates
     )
     assert updates[-1].street == "complete"
+
+
+@pytest.mark.asyncio
+async def test_table_socket_unsubscribes_when_client_disconnects_without_broadcast() -> None:
+    state = table_manager.create_table(
+        CreateTableRequest(
+            player_names=["Hero", "Ada", "Babbage", "Claude"],
+            bot_styles=["tight_aggressive", "conservative", "gto_leaning"],
+            starting_stack=500,
+            small_blind=5,
+            big_blind=10,
+            human_seat=0,
+            seed=101,
+        )
+    )
+    websocket = _DisconnectableWebSocket()
+    task = asyncio.create_task(table_socket(websocket, state.table_id))
+
+    try:
+        await asyncio.wait_for(websocket.initial_state_sent.wait(), timeout=1)
+        websocket.disconnect()
+        await asyncio.wait_for(_wait_for_no_subscribers(state.table_id), timeout=1)
+    finally:
+        if not task.done():
+            task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, WebSocketDisconnect):
+            pass
+
+
+class _DisconnectableWebSocket:
+    def __init__(self) -> None:
+        self.initial_state_sent = asyncio.Event()
+        self._disconnect_requested = asyncio.Event()
+
+    async def accept(self) -> None:
+        pass
+
+    async def close(self, code: int) -> None:
+        pass
+
+    async def send_json(self, message: dict) -> None:
+        self.initial_state_sent.set()
+
+    async def receive(self) -> dict:
+        await self._disconnect_requested.wait()
+        raise WebSocketDisconnect()
+
+    def disconnect(self) -> None:
+        self._disconnect_requested.set()
+
+
+async def _wait_for_no_subscribers(table_id: str) -> None:
+    while table_manager.tables[table_id].subscribers:
+        await asyncio.sleep(0)
 
 
 def _choose_legal_action(legal_actions: list[dict]) -> dict:
