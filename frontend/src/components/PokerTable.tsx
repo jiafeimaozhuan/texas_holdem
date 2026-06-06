@@ -3,6 +3,7 @@ import { streetLabel } from "../labels";
 import type { TableStateResponse } from "../types";
 import { CommunityCards } from "./CommunityCards";
 import { PlayerSeat } from "./PlayerSeat";
+import { seatPosition } from "./PokerTableLayout";
 
 interface PokerTableProps {
   state: TableStateResponse | null;
@@ -11,69 +12,6 @@ interface PokerTableProps {
   onSelectCoachSeat: (seat: number) => void;
 }
 
-const seatLayouts: Record<number, Array<[number, number]>> = {
-  2: [
-    [50, 86],
-    [50, 14],
-  ],
-  3: [
-    [50, 86],
-    [12, 50],
-    [88, 50],
-  ],
-  4: [
-    [50, 86],
-    [12, 50],
-    [50, 14],
-    [88, 50],
-  ],
-  5: [
-    [50, 86],
-    [12, 63],
-    [34, 14],
-    [66, 14],
-    [88, 63],
-  ],
-  6: [
-    [50, 86],
-    [12, 72],
-    [12, 28],
-    [50, 14],
-    [88, 28],
-    [88, 72],
-  ],
-  7: [
-    [34, 89],
-    [66, 89],
-    [12, 63],
-    [12, 37],
-    [50, 11],
-    [88, 37],
-    [88, 63],
-  ],
-  8: [
-    [34, 89],
-    [66, 89],
-    [12, 63],
-    [12, 37],
-    [34, 11],
-    [66, 11],
-    [88, 37],
-    [88, 63],
-  ],
-  9: [
-    [19, 89],
-    [50, 89],
-    [81, 89],
-    [12, 63],
-    [12, 37],
-    [34, 11],
-    [66, 11],
-    [88, 37],
-    [88, 63],
-  ],
-};
-
 function blindMap(state: TableStateResponse): Record<number, string> {
   return state.history_events.reduce<Record<number, string>>((accumulator, event) => {
     if (event.type === "blind" && typeof event.seat === "number" && event.blind) {
@@ -81,16 +19,6 @@ function blindMap(state: TableStateResponse): Record<number, string> {
     }
     return accumulator;
   }, {});
-}
-
-function seatPosition(index: number, total: number): CSSProperties {
-  const layout = seatLayouts[total];
-  const [x, y] = layout?.[index] ?? [50, 50];
-
-  return {
-    "--seat-x": `${x}%`,
-    "--seat-y": `${y}%`,
-  } as CSSProperties;
 }
 
 function tableStageStyle(total: number): CSSProperties {
