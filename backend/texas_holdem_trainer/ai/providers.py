@@ -20,6 +20,10 @@ from texas_holdem_trainer.domain.state import GameState
 logger = logging.getLogger(__name__)
 
 
+_CODEX_STDOUT_READ_CHUNK_BYTES = 65_536
+_CODEX_STDOUT_MAX_LINE_BYTES = 10_000_000
+
+
 def _emit_llm_log(message: str) -> None:
     logger.info(message)
     print(message, flush=True)
@@ -604,11 +608,13 @@ class CodexAppServerClient:
         self._thread_ids: dict[str, str] = {}
         self._stderr_task: asyncio.Task[None] | None = None
         self._turns_started = 0
+        self._stdout_buffer = b""
 
     async def close(self) -> None:
         process = self.process
         self.process = None
         self._thread_ids.clear()
+        self._stdout_buffer = b""
         stderr_task = self._stderr_task
         self._stderr_task = None
         if process is not None and process.returncode is None:
@@ -860,7 +866,7 @@ class CodexAppServerClient:
         pending = ""
         pending_lines = 0
         while True:
-            line = await process.stdout.readline()
+            line = await self._read_stdout_line()
             if not line:
                 raise ValueError("Codex app-server process closed stdout")
             raw_line = line.decode(errors="replace").rstrip("\n").rstrip("\r")
@@ -890,6 +896,24 @@ class CodexAppServerClient:
             if not isinstance(parsed, dict):
                 raise ValueError("Codex app-server returned non-object JSON-RPC message")
             return parsed
+
+    async def _read_stdout_line(self) -> bytes:
+        process = self.process
+        if process is None or process.stdout is None:
+            raise RuntimeError("Codex app-server process is not running")
+
+        while b"\n" not in self._stdout_buffer:
+            chunk = await process.stdout.read(_CODEX_STDOUT_READ_CHUNK_BYTES)
+            if not chunk:
+                line = self._stdout_buffer
+                self._stdout_buffer = b""
+                return line
+            self._stdout_buffer += chunk
+            if len(self._stdout_buffer) > _CODEX_STDOUT_MAX_LINE_BYTES:
+                raise ValueError("Codex app-server stdout message exceeded maximum line length")
+
+        line, self._stdout_buffer = self._stdout_buffer.split(b"\n", 1)
+        return line + b"\n"
 
 
 _DECISION_OUTPUT_SCHEMA = {

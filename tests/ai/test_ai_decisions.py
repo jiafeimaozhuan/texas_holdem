@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from typing import get_type_hints
 
@@ -1481,19 +1482,12 @@ async def test_codex_app_server_client_closes_process_after_runtime_error() -> N
 async def test_codex_app_server_client_reads_multiline_json_rpc_message() -> None:
     class FakeStdout:
         def __init__(self) -> None:
-            self.lines = iter(
-                [
-                    b'{\n',
-                    b'  "id": 7,\n',
-                    b'  "result": {\n',
-                    b'    "ok": true\n',
-                    b'  }\n',
-                    b'}\n',
-                ]
+            self.chunks = iter(
+                [b'{\n  "id": 7,\n  "result": {\n    "ok": true\n  }\n}\n']
             )
 
-        async def readline(self):
-            return next(self.lines, b"")
+        async def read(self, size: int):
+            return next(self.chunks, b"")
 
     class FakeProcess:
         stdout = FakeStdout()
@@ -1510,15 +1504,15 @@ async def test_codex_app_server_client_reads_multiline_json_rpc_message() -> Non
 async def test_codex_app_server_client_skips_non_json_stdout_lines() -> None:
     class FakeStdout:
         def __init__(self) -> None:
-            self.lines = iter(
+            self.chunks = iter(
                 [
                     b"status: starting\n",
                     b'{"id":8,"result":{"ok":true}}\n',
                 ]
             )
 
-        async def readline(self):
-            return next(self.lines, b"")
+        async def read(self, size: int):
+            return next(self.chunks, b"")
 
     class FakeProcess:
         stdout = FakeStdout()
@@ -1529,3 +1523,28 @@ async def test_codex_app_server_client_skips_non_json_stdout_lines() -> None:
     message = await client._read_message()
 
     assert message == {"id": 8, "result": {"ok": True}}
+
+
+@pytest.mark.asyncio
+async def test_codex_app_server_client_reads_json_rpc_line_longer_than_stream_limit() -> None:
+    class FakeStdout:
+        def __init__(self) -> None:
+            payload = json.dumps(
+                {"id": 9, "result": {"text": "x" * 80_000}},
+                separators=(",", ":"),
+            ).encode()
+            self.chunks = iter([payload[:40_000], payload[40_000:] + b"\n"])
+
+        async def read(self, size: int):
+            return next(self.chunks, b"")
+
+    class FakeProcess:
+        stdout = FakeStdout()
+
+    client = CodexAppServerClient(command="codex")
+    client.process = FakeProcess()
+
+    message = await client._read_message()
+
+    assert message["id"] == 9
+    assert message["result"]["text"] == "x" * 80_000
